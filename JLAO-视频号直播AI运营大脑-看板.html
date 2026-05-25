@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JLAO 视频号直播 AI 运营大脑看板</title>
+  <style>
+    :root {
+      --bg: #08110f;
+      --panel: #111b18;
+      --panel-2: #17241f;
+      --line: #28413a;
+      --text: #ecf7f4;
+      --muted: #9fb8b0;
+      --green: #22d3a6;
+      --blue: #5aa9ff;
+      --amber: #f5c15c;
+      --red: #ff6b6b;
+      --purple: #b48cff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    .page {
+      width: min(1480px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0e1815;
+    }
+
+    h1, h2, h3 { margin: 0; font-weight: 700; }
+    h1 { font-size: 28px; line-height: 1.25; }
+    h2 { font-size: 20px; margin-bottom: 14px; }
+    h3 { font-size: 15px; margin-bottom: 10px; }
+
+    .subtitle {
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .deadline-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(160px, 1fr));
+      gap: 10px;
+      min-width: 380px;
+    }
+
+    .deadline {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .deadline span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .deadline strong {
+      font-size: 18px;
+      color: var(--green);
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+      min-width: 0;
+    }
+
+    .panel.alt { background: var(--panel-2); }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      color: var(--text);
+      background: #0c1714;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .tag.green { border-color: rgba(34, 211, 166, .45); color: var(--green); }
+    .tag.blue { border-color: rgba(90, 169, 255, .45); color: var(--blue); }
+    .tag.amber { border-color: rgba(245, 193, 92, .45); color: var(--amber); }
+    .tag.red { border-color: rgba(255, 107, 107, .45); color: var(--red); }
+    .tag.purple { border-color: rgba(180, 140, 255, .45); color: var(--purple); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(110px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .flow-step {
+      border: 1px solid var(--line);
+      background: #0d1714;
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 76px;
+    }
+
+    .flow-step b {
+      display: block;
+      color: var(--green);
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .flow-step span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: 1.15fr .9fr .85fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .column {
+      border: 1px solid var(--line);
+      background: #0d1714;
+      border-radius: 8px;
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .column-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .count {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+      margin-top: 10px;
+    }
+
+    .card:first-of-type { margin-top: 0; }
+
+    .card-title {
+      font-weight: 700;
+      font-size: 14px;
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      border-radius: 5px;
+      padding: 3px 7px;
+      background: #0a1311;
+      border: 1px solid var(--line);
+    }
+
+    .p0 { color: var(--red); }
+    .p1 { color: var(--amber); }
+    .p2 { color: var(--blue); }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+    }
+
+    .milestone {
+      border: 1px solid var(--line);
+      background: #0d1714;
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 132px;
+    }
+
+    .date {
+      color: var(--green);
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .small {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 13px;
+    }
+
+    .section { margin-top: 20px; }
+
+    .asset-card {
+      min-height: 170px;
+      border-left: 4px solid var(--green);
+    }
+
+    .asset-card.database { border-left-color: var(--blue); }
+
+    .boss {
+      border: 1px solid rgba(180, 140, 255, .45);
+      background: #151827;
+    }
+
+    @media (max-width: 1180px) {
+      .topbar { flex-direction: column; }
+      .deadline-grid { min-width: 0; width: 100%; }
+      .grid.cols-2, .grid.cols-3, .grid.cols-4, .board, .timeline, .flow {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="topbar">
+      <div>
+        <h1>JLAO 视频号直播 AI 运营大脑看板</h1>
+        <div class="subtitle">
+          第一版 MVP demo：任意直播间可演示。核心底座是知识库和数据库，上层接图像识别、语音识别、虚拟客户、多 Agent、真实低风险发言和内容输出。
+        </div>
+        <div class="tag-row">
+          <span class="tag green">知识库优先</span>
+          <span class="tag blue">数据库优先</span>
+          <span class="tag amber">5.31 完成第一版 MVP demo</span>
+          <span class="tag purple">6.30 完成真实客户分析版</span>
+        </div>
+      </div>
+      <div class="deadline-grid">
+        <div class="deadline">
+          <span>第一版 MVP demo</span>
+          <strong>2026-05-31</strong>
+        </div>
+        <div class="deadline">
+          <span>第二版全功能</span>
+          <strong>2026-06-30</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="section grid cols-2">
+      <div class="panel asset-card">
+        <h2>知识库底座</h2>
+        <p class="small">解决“系统应该依据什么说话”。第一版读取 <b>C:\Users\chuyu\Desktop\wiki.md</b>，后续升级 Obsidian Vault 和多文件知识库。</p>
+        <ul>
+          <li>直播间运营规则、平台禁忌、风控词</li>
+          <li>翡翠商品知识、商品话术、售前售后 FAQ</li>
+          <li>Agent 人设、话术习惯、历史复盘</li>
+          <li>参与主播提词、Agent 发言、风控、客服、内容输出</li>
+        </ul>
+      </div>
+      <div class="panel asset-card database">
+        <h2>数据库底座</h2>
+        <p class="small">解决“系统应该记住什么”。第一版用虚拟客户和样例数据演示，第二版升级为真实客户长期记忆。</p>
+        <ul>
+          <li>客户说过什么、问过什么、买过什么</li>
+          <li>客户喜欢什么、爱好什么、预算和偏好</li>
+          <li>客户等级变化、直播表现、Agent 发言日志</li>
+          <li>支撑评级、推荐、老板看板和多直播间横向对比</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section panel">
+      <h2>演示主线</h2>
+      <div class="flow">
+        <div class="flow-step"><b>1. 接入直播</b><span>任意直播间画面和声音</span></div>
+        <div class="flow-step"><b>2. 语音识别</b><span>主播话术实时转写</span></div>
+        <div class="flow-step"><b>3. 图像识别</b><span>商品和画面状态</span></div>
+        <div class="flow-step"><b>4. 知识检索</b><span>wiki.md 按章节检索</span></div>
+        <div class="flow-step"><b>5. 虚拟客户</b><span>进房、提问、兴趣变化</span></div>
+        <div class="flow-step"><b>6. 多 Agent</b><span>气氛、商品、客户、风控、成交</span></div>
+        <div class="flow-step"><b>7. 真实发言</b><span>scrcpy 发送低风险评论</span></div>
+        <div class="flow-step"><b>8. 内容输出</b><span>复盘和内容草稿包</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>第一版 MVP demo 看板</h2>
+      <div class="board">
+        <div class="column">
+          <div class="column-title">待办 <span class="count">核心任务</span></div>
+          <div class="card">
+            <div class="card-title">读取 wiki.md 并定义知识库章节规范</div>
+            <div class="meta"><span class="pill p0">P0</span><span class="pill">知识库</span><span class="pill">5.31 必需</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">定义客户记忆数据库结构</div>
+            <div class="meta"><span class="pill p0">P0</span><span class="pill">数据库</span><span class="pill">说过/问过/买过/喜欢/爱好</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">设计 10-20 个虚拟客户样例</div>
+            <div class="meta"><span class="pill p0">P0</span><span class="pill">虚拟客户</span><span class="pill">评级和偏好</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">定义 5 个 Agent 人设和职责</div>
+            <div class="meta"><span class="pill p0">P0</span><span class="pill">多 Agent</span><span class="pill">自动化等级</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">实现 JLAO 内模拟发言流</div>
+            <div class="meta"><span class="pill p1">P1</span><span class="pill">Agent</span><span class="pill">虚拟直播间</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">验证 scrcpy 输入真实直播间评论</div>
+            <div class="meta"><span class="pill p1">P1</span><span class="pill">真实发言</span><span class="pill">低风险话术</span></div>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="column-title">进行中 <span class="count">当前推进</span></div>
+          <div class="card">
+            <div class="card-title">新版 PRD 和看板整理</div>
+            <div class="meta"><span class="pill p0">P0</span><span class="pill">产品</span><span class="pill">范围冻结</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">原 JLAO 能力复用评估</div>
+            <div class="meta"><span class="pill p1">P1</span><span class="pill">基础能力</span><span class="pill">保留现有功能</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">第一版演示边界确认</div>
+            <div class="meta"><span class="pill p0">P0</span><span class="pill">任意直播间</span><span class="pill">不接后台</span></div>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="column-title">已完成 <span class="count">可复用基础</span></div>
+          <div class="card">
+            <div class="card-title">FastAPI + Vue 中控台</div>
+            <div class="meta"><span class="pill">原系统</span><span class="pill">已存在</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">商品库、会话、转写、建议、复盘</div>
+            <div class="meta"><span class="pill">原系统</span><span class="pill">已存在</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">scrcpy 手机投屏和 1 FPS 截图</div>
+            <div class="meta"><span class="pill">设备链路</span><span class="pill">已存在</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">OpenCV 基础画面检测</div>
+            <div class="meta"><span class="pill">图像识别</span><span class="pill">已存在</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">本地 STT / 阿里云 STT 结构</div>
+            <div class="meta"><span class="pill">语音识别</span><span class="pill">已存在</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section panel">
+      <h2>5.31 里程碑</h2>
+      <div class="timeline">
+        <div class="milestone">
+          <div class="date">05-24</div>
+          <h3>PRD 和方案冻结</h3>
+          <p class="small">确认第一版只做任意直播间 Demo，不接后台，不抓真实客户。</p>
+        </div>
+        <div class="milestone">
+          <div class="date">05-26</div>
+          <h3>虚拟客户 + Wiki</h3>
+          <p class="small">wiki.md 可读取，虚拟客户可展示，高等级客户可触发提醒。</p>
+        </div>
+        <div class="milestone">
+          <div class="date">05-28</div>
+          <h3>多 Agent 模拟</h3>
+          <p class="small">5 个 Agent 可运行，JLAO 内出现持续虚拟互动。</p>
+        </div>
+        <div class="milestone">
+          <div class="date">05-30</div>
+          <h3>真实低风险发言</h3>
+          <p class="small">scrcpy 可输入并发送评论，一键暂停和日志可用。</p>
+        </div>
+        <div class="milestone">
+          <div class="date">05-31</div>
+          <h3>内容草稿包</h3>
+          <p class="small">Demo 结束后展示复盘、公众号、短视频和货架文案草稿。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section grid cols-3">
+      <div class="panel">
+        <h2>第二版 6.30</h2>
+        <p class="small">带真实客户分析的全功能版本。</p>
+        <ul>
+          <li>真实客户档案库</li>
+          <li>客户主页 AI 分析</li>
+          <li>客户长期记忆和综合评级</li>
+          <li>个性化话术和商品推荐</li>
+          <li>客服、投诉、企微承接出口</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>未来：老板看板</h2>
+        <p class="small">把多个直播间的数据平铺给老板一个人看。</p>
+        <ul>
+          <li>多直播间状态总览</li>
+          <li>主播状态和粉丝活跃横向对比</li>
+          <li>成交机会、风险提醒、客服问题</li>
+          <li>Agent 发言效果和内容产出</li>
+          <li>老板一键触达重点事项</li>
+        </ul>
+      </div>
+      <div class="panel boss">
+        <h2>未来：管理能力</h2>
+        <p class="small">让老板、负责人和运营用同一套数据管理多个直播间。</p>
+        <ul>
+          <li>账号切换</li>
+          <li>Agent 库管理</li>
+          <li>管理模式切换</li>
+          <li>人货场评分</li>
+          <li>竞争店铺货品价位抓取</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

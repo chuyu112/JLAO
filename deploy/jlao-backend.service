@@ -1,0 +1,16 @@
+[Unit]
+Description=JLAO FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/jlao/backend
+ExecStart=/opt/jlao/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/jlao/.env
+
+[Install]
+WantedBy=multi-user.target
+

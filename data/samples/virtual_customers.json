@@ -1,0 +1,58 @@
+[
+  {
+    "id": "vc-001",
+    "nickname": "老客阿青",
+    "level": "高价值",
+    "personality": "稳重谨慎",
+    "preferred_colors": ["晴水", "冰底"],
+    "preferred_categories": ["手镯"],
+    "budget_range": "8000-15000",
+    "common_questions": ["能看自然光吗？", "圈口是多少？"],
+    "purchased_items": ["冰飘花手镯"],
+    "purchased_amount": 26800,
+    "relationship_strategy": "先欢迎老客，再提醒主播展示自然光和圈口。",
+    "activity_level": 0.9
+  },
+  {
+    "id": "vc-002",
+    "nickname": "小叶想送礼",
+    "level": "潜力客户",
+    "personality": "直接",
+    "preferred_colors": ["紫罗兰", "阳绿"],
+    "preferred_categories": ["挂件", "蛋面"],
+    "budget_range": "2000-5000",
+    "common_questions": ["适合送妈妈吗？", "有证书吗？"],
+    "purchased_items": [],
+    "purchased_amount": 0,
+    "relationship_strategy": "多给送礼场景和佩戴建议。",
+    "activity_level": 0.7
+  },
+  {
+    "id": "vc-003",
+    "nickname": "蓝水控",
+    "level": "普通客户",
+    "personality": "慢热",
+    "preferred_colors": ["蓝水"],
+    "preferred_categories": ["珠串", "挂件"],
+    "budget_range": "3000-8000",
+    "common_questions": ["颜色会不会太暗？", "适合男士吗？"],
+    "purchased_items": ["蓝水小吊坠"],
+    "purchased_amount": 3200,
+    "relationship_strategy": "重点展示上手效果和日常搭配。",
+    "activity_level": 0.55
+  },
+  {
+    "id": "vc-004",
+    "nickname": "证书党",
+    "level": "普通客户",
+    "personality": "理性",
+    "preferred_colors": ["阳绿", "晴水"],
+    "preferred_categories": ["蛋面", "手镯"],
+    "budget_range": "5000-12000",
+    "common_questions": ["支持复检吗？", "证书能看吗？"],
+    "purchased_items": [],
+    "purchased_amount": 0,
+    "relationship_strategy": "先讲证书和复检，再讲价格。",
+    "activity_level": 0.65
+  }
+]
