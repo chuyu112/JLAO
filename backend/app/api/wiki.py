@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Query
 
+from app.auth_utils import require_role
 from app.schemas import WikiChunk
 from app.services.wiki_service import get_indexed_wiki_chunks, reload_wiki_chunks, search_indexed_wiki
 
@@ -16,6 +17,6 @@ async def search_wiki(q: str = Query(default=""), limit: int = Query(default=5, 
     return search_indexed_wiki(q, limit=limit)
 
 
-@router.post("/wiki/reload", response_model=list[WikiChunk])
+@router.post("/wiki/reload", response_model=list[WikiChunk], dependencies=[require_role("管理员")])
 async def reload_wiki() -> list[WikiChunk]:
     return reload_wiki_chunks()

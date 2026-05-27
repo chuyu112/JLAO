@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.schemas import Product, VirtualCustomer, VirtualCustomerEvent
@@ -107,5 +107,5 @@ def _new_event(
         content=content,
         trigger_reason=trigger_reason,
         priority=priority,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )

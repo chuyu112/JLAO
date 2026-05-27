@@ -237,6 +237,18 @@ def list_frame_snapshots(session_id: str) -> list[FrameSnapshot]:
         return [_frame_from_record(record) for record in records]
 
 
+def trim_frame_snapshots(session_id: str, keep: int) -> None:
+    with session_scope() as session:
+        records = session.scalars(
+            select(FrameSnapshotRecord)
+            .where(FrameSnapshotRecord.session_id == session_id)
+            .order_by(FrameSnapshotRecord.created_at.desc())
+            .offset(keep)
+        ).all()
+        for record in records:
+            session.delete(record)
+
+
 def save_replay_report(report: ReplayReport) -> None:
     with session_scope() as session:
         record = session.get(ReplayReportRecord, report.id)

@@ -29,12 +29,19 @@ scrcpy_tasks: dict[str, ScrcpyTaskState] = {}
 scrcpy_clients: dict[str, list[Any]] = {}
 
 
-_SCRCPY_CANDIDATES = [
-    r"D:\scrcpy-win64-v3.3.4\scrcpy.exe",
-    r"C:\Program Files\scrcpy\scrcpy.exe",
-    r"C:\ProgramData\chocolatey\bin\scrcpy.exe",
-    r"C:\Users\Administrator\scoop\shims\scrcpy.exe",
-]
+if sys.platform == "win32":
+    _SCRCPY_CANDIDATES = [
+        r"D:\scrcpy-win64-v3.3.4\scrcpy.exe",
+        r"C:\Program Files\scrcpy\scrcpy.exe",
+        r"C:\ProgramData\chocolatey\bin\scrcpy.exe",
+        r"C:\Users\Administrator\scoop\shims\scrcpy.exe",
+    ]
+else:
+    _SCRCPY_CANDIDATES = [
+        "/usr/bin/scrcpy",
+        "/usr/local/bin/scrcpy",
+        "/opt/scrcpy/scrcpy",
+    ]
 
 
 def _get_scrcpy_exe() -> str:
@@ -46,7 +53,7 @@ def _get_scrcpy_exe() -> str:
     if path:
         return path
 
-    raise FileNotFoundError("未找到 scrcpy，请确认 scrcpy.exe 已安装并加入 PATH，或放在 D:\\scrcpy-win64-v3.3.4。")
+    raise FileNotFoundError("未找到 scrcpy，请确认已安装并加入 PATH。")
 
 
 def _format_bit_rate(bit_rate: int) -> str:

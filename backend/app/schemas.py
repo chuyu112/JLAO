@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -158,7 +158,7 @@ class WikiChunk(BaseModel):
     heading: str
     content: str
     tags: list[str] = Field(default_factory=list)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class VirtualCustomer(BaseModel):
@@ -174,8 +174,8 @@ class VirtualCustomer(BaseModel):
     purchased_amount: float = 0
     relationship_strategy: str = ""
     activity_level: float = 0.5
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class CustomerMemory(BaseModel):
@@ -187,7 +187,7 @@ class CustomerMemory(BaseModel):
     preference_tags: list[str] = Field(default_factory=list)
     interest_score: float = 0
     last_seen_at: datetime | None = None
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class VirtualCustomerEvent(BaseModel):
@@ -200,7 +200,7 @@ class VirtualCustomerEvent(BaseModel):
     content: str
     trigger_reason: str
     priority: int = 1
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentProfile(BaseModel):
@@ -212,8 +212,8 @@ class AgentProfile(BaseModel):
     allowed_auto_actions: list[str] = Field(default_factory=list)
     risk_policy: str = ""
     enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentUtterance(BaseModel):
@@ -230,7 +230,7 @@ class AgentUtterance(BaseModel):
     trigger_reason: str
     wiki_chunk_ids: list[str] = Field(default_factory=list)
     customer_event_ids: list[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     sent_at: datetime | None = None
 
 

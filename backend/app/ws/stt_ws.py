@@ -1,7 +1,8 @@
 import os
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
+from app.auth_utils import decode_access_token
 from app.services.local_stt_service import LocalChunkStt, LocalSttNotConfigured
 from app.services.stt_service import AliyunRealtimeStt, AliyunSttNotConfigured
 from app.services.transcript_service import append_transcript
@@ -14,7 +15,20 @@ STT_PROVIDER = os.getenv("STT_PROVIDER", "local").lower()
 
 
 @router.websocket("/ws/sessions/{session_id}/stt")
-async def stt_websocket(websocket: WebSocket, session_id: str) -> None:
+async def stt_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    token: str | None = Query(None),
+) -> None:
+    if not token:
+        await websocket.close(code=1008, reason="缺少认证信息")
+        return
+    try:
+        decode_access_token(token)
+    except Exception:
+        await websocket.close(code=1008, reason="认证无效")
+        return
+
     await websocket.accept()
     if session_id not in app_state.sessions:
         await websocket.send_json({"event": "stt_error", "data": {"message": "直播会话不存在"}})
@@ -46,8 +60,8 @@ async def stt_websocket(websocket: WebSocket, session_id: str) -> None:
         await websocket.send_json({"event": "stt_error", "data": {"message": str(error)}})
     except WebSocketDisconnect:
         pass
-    except Exception as error:
-        await websocket.send_json({"event": "stt_error", "data": {"message": f"实时语音识别异常：{error}"}})
+    except Exception:
+        await websocket.send_json({"event": "stt_error", "data": {"message": "实时语音识别异常"}})
     finally:
         await stt.close()
 

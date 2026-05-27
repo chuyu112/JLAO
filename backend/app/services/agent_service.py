@@ -1,7 +1,7 @@
 from app.schemas import Product, Suggestion, TranscriptSegment
 from app.services.compliance_service import find_risk_terms, rewrite_if_risky
 from app.services.context_service import build_context
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 
@@ -20,7 +20,7 @@ def _new_suggestion(
     reason: str,
     source_context: str,
 ) -> Suggestion:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return Suggestion(
         id=f"sug-{uuid4().hex[:12]}",
         session_id=session_id,

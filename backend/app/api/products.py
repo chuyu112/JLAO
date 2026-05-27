@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
+from app.auth_utils import require_role
 from app.repositories import delete_product as delete_product_record
 from app.repositories import save_product
 from app.schemas import Product, ProductCreate
@@ -41,11 +42,10 @@ async def update_product(product_id: str, payload: ProductCreate) -> Product:
     return product
 
 
-@router.delete("/{product_id}")
+@router.delete("/{product_id}", dependencies=[require_role("管理员")])
 async def delete_product(product_id: str) -> dict[str, str]:
     if product_id not in app_state.products:
         raise HTTPException(status_code=404, detail="商品不存在")
     app_state.products.pop(product_id)
     delete_product_record(product_id)
-    return {"status": "deleted", "deleted_at": datetime.utcnow().isoformat()}
-
+    return {"status": "deleted", "deleted_at": datetime.now(timezone.utc).isoformat()}

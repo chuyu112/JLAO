@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -306,7 +306,7 @@ async def apply_recognition(
             bucket[pid] = bucket.get(pid, 0.0) + sc * TEXT_WEIGHT
 
     # Update detected dimensions on session
-    update_fields: dict[str, Any] = {"updated_at": datetime.utcnow()}
+    update_fields: dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
     if detected_color:
         update_fields["detected_color"] = detected_color
     if detected_water:
@@ -356,7 +356,7 @@ async def apply_recognition(
     if top_score >= SWITCH_THRESHOLD and (top_score - runner) >= GAP_THRESHOLD:
         if session.current_product_id != top_pid:
             updated = session.model_copy(
-                update={"current_product_id": top_pid, "updated_at": datetime.utcnow()}
+                update={"current_product_id": top_pid, "updated_at": datetime.now(timezone.utc)}
             )
             app_state.sessions[session_id] = updated
             save_live_session(updated)

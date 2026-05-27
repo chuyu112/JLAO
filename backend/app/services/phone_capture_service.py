@@ -26,12 +26,19 @@ class PhoneCaptureTaskState:
 
 capture_tasks: dict[str, PhoneCaptureTaskState] = {}
 
-_ADB_CANDIDATES = [
-    r"D:\scrcpy-win64-v3.3.4\adb.exe",
-    r"C:\Program Files\scrcpy\adb.exe",
-    r"C:\ProgramData\chocolatey\bin\adb.exe",
-    r"C:\Users\Administrator\scoop\shims\adb.exe",
-]
+if sys.platform == "win32":
+    _ADB_CANDIDATES = [
+        r"D:\scrcpy-win64-v3.3.4\adb.exe",
+        r"C:\Program Files\scrcpy\adb.exe",
+        r"C:\ProgramData\chocolatey\bin\adb.exe",
+        r"C:\Users\Administrator\scoop\shims\adb.exe",
+    ]
+else:
+    _ADB_CANDIDATES = [
+        "/usr/bin/adb",
+        "/usr/local/bin/adb",
+        "/opt/android-platform-tools/adb",
+    ]
 
 
 def _get_adb_exe() -> str:

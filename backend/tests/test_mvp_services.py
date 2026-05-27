@@ -146,7 +146,7 @@ class MultiAgentTests(unittest.TestCase):
 
 class VirtualReplyTests(unittest.TestCase):
     def test_price_question_generates_virtual_reply_that_is_not_sent(self) -> None:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         from app.schemas import Product, TranscriptSegment
         from app.services.agent_service import generate_suggestions
@@ -165,7 +165,7 @@ class VirtualReplyTests(unittest.TestCase):
                 session_id="live-001",
                 index=1,
                 text="这个价格多少",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
         ]
 
@@ -176,7 +176,7 @@ class VirtualReplyTests(unittest.TestCase):
         self.assertIn("仅模拟，不发送", reply.content)
 
     def test_price_question_is_kept_when_risk_and_detail_signals_compete(self) -> None:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         from app.schemas import Product, TranscriptSegment
         from app.services.agent_service import generate_suggestions
@@ -196,7 +196,7 @@ class VirtualReplyTests(unittest.TestCase):
                 session_id="live-001",
                 index=1,
                 text="这个价格多少，有证书吗，主播说肯定升值",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
         ]
 
@@ -205,7 +205,7 @@ class VirtualReplyTests(unittest.TestCase):
         self.assertIn("用户问题模拟回复", {item.type for item in suggestions})
 
     def test_price_question_is_kept_when_product_context_adds_two_speaker_suggestions(self) -> None:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         from app.schemas import Product, TranscriptSegment
         from app.services.agent_service import generate_suggestions
@@ -227,7 +227,7 @@ class VirtualReplyTests(unittest.TestCase):
                 session_id="live-001",
                 index=1,
                 text="这个冰种翡翠价格多少？有没有证书？自然光看看，上手效果，稳赚不赔",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
         ]
 
@@ -238,7 +238,7 @@ class VirtualReplyTests(unittest.TestCase):
 
 class ObservationReportTests(unittest.TestCase):
     def test_build_report_uses_public_live_observation_language(self) -> None:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         from app.schemas import Suggestion, TranscriptSegment
         from app.services.replay_service import build_replay_report
@@ -249,7 +249,7 @@ class ObservationReportTests(unittest.TestCase):
                 session_id="live-001",
                 index=1,
                 text="这件有证书吗，价格多少",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
         ]
         suggestions = [
@@ -262,8 +262,8 @@ class ObservationReportTests(unittest.TestCase):
                 risk_level="低",
                 content="【仅模拟，不发送】可以先讲品质依据，再说价格。",
                 reason="公开视频号直播观察。",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
         ]
 

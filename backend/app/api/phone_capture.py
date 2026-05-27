@@ -19,9 +19,8 @@ async def start_phone_capture(session_id: str, payload: PhoneCaptureStartRequest
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-        raise HTTPException(status_code=400, detail=detail) from exc
+    except Exception:
+        raise HTTPException(status_code=500, detail="启动手机截屏失败，请检查设备连接")
 
 
 @router.post("/sessions/{session_id}/phone-capture/stop")
@@ -46,6 +45,5 @@ async def capture_phone_once(session_id: str, payload: PhoneCaptureStartRequest)
         return await phone_capture_service.capture_once(session_id=session_id, serial=payload.serial)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-        raise HTTPException(status_code=400, detail=detail) from exc
+    except Exception:
+        raise HTTPException(status_code=500, detail="手机截屏失败，请检查设备连接")

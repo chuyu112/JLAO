@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.schemas import AgentUtterance, Product, VirtualCustomerEvent, WikiChunk
@@ -34,7 +34,7 @@ def generate_agent_utterances(
     wiki_hits: list[WikiChunk],
     customer_events: list[VirtualCustomerEvent],
 ) -> list[AgentUtterance]:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     wiki_ids = [chunk.id for chunk in wiki_hits]
     event_ids = [event.id for event in customer_events]
     product_name = product.name if product else "当前商品"

@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.schemas import FrameSnapshot
 from app.services.product_recognition_service import (
@@ -7,7 +7,7 @@ from app.services.product_recognition_service import (
     extract_color_from_image,
     match_products_by_image,
 )
-from app.repositories import save_frame_snapshot
+from app.repositories import save_frame_snapshot, trim_frame_snapshots
 from app.state import app_state
 from app.ws.manager import manager
 
@@ -60,7 +60,7 @@ async def create_frame_snapshot(session_id: str, image_path: Path, image_url: st
         session_id, image_scores=image_scores, detected_color=detected_color
     )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     snapshot = FrameSnapshot(
         id=app_state.new_id("snap"),
         session_id=session_id,
@@ -77,9 +77,11 @@ async def create_frame_snapshot(session_id: str, image_path: Path, image_url: st
         recognition_source=source,
         created_at=now,
     )
+    _MAX_FRAMES_PER_SESSION = 30
     frames = app_state.frames.setdefault(session_id, [])
     frames.insert(0, snapshot)
-    del frames[30:]
+    del frames[_MAX_FRAMES_PER_SESSION:]
     save_frame_snapshot(snapshot)
+    trim_frame_snapshots(session_id, keep=_MAX_FRAMES_PER_SESSION)
     await manager.broadcast(session_id, "frame_snapshot", snapshot.model_dump(mode="json"))
     return snapshot

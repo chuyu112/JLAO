@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -44,7 +44,7 @@ async def edit_suggestion(suggestion_id: str, payload: SuggestionUpdate) -> Sugg
         update={
             "content": payload.content or suggestion.content,
             "status": SuggestionStatus.edited,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         }
     )
     app_state.suggestions[session_id][index] = updated
@@ -55,7 +55,7 @@ async def edit_suggestion(suggestion_id: str, payload: SuggestionUpdate) -> Sugg
 
 async def _set_status(suggestion_id: str, status: SuggestionStatus) -> Suggestion:
     suggestion, session_id, index = _find_suggestion(suggestion_id)
-    updated = suggestion.model_copy(update={"status": status, "updated_at": datetime.utcnow()})
+    updated = suggestion.model_copy(update={"status": status, "updated_at": datetime.now(timezone.utc)})
     app_state.suggestions[session_id][index] = updated
     save_suggestion(updated)
     await manager.broadcast(session_id, "suggestion_updated", updated.model_dump(mode="json"))

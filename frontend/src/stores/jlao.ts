@@ -131,10 +131,16 @@ export const useJlaoStore = defineStore('jlao', {
       }
     },
 
+    _wsUrl(path: string) {
+      const token = localStorage.getItem('jlao_token') || ''
+      const url = `${WS_BASE}${path}`
+      return token ? `${url}?token=${encodeURIComponent(token)}` : url
+    },
+
     connectSocket() {
       if (!this.currentSession) return
       this.socket?.close()
-      const socket = new WebSocket(`${WS_BASE}/ws/sessions/${this.currentSession.id}`)
+      const socket = new WebSocket(this._wsUrl(`/ws/sessions/${this.currentSession.id}`))
       socket.onopen = () => {
         this.connected = true
       }
@@ -283,7 +289,7 @@ export const useJlaoStore = defineStore('jlao', {
     connectStt() {
       if (!this.currentSession || this.sttSocket?.readyState === WebSocket.OPEN) return
       this.sttError = ''
-      const socket = new WebSocket(`${WS_BASE}/ws/sessions/${this.currentSession.id}/stt`)
+      const socket = new WebSocket(this._wsUrl(`/ws/sessions/${this.currentSession.id}/stt`))
       socket.binaryType = 'arraybuffer'
       socket.onopen = () => {
         this.sttConnected = true

@@ -1,7 +1,7 @@
 import hashlib
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.repositories import list_wiki_chunks, replace_wiki_chunks
@@ -35,7 +35,7 @@ def parse_markdown_chunks(markdown: str, source_path: str = "wiki.md") -> list[W
                 heading=current_heading,
                 content=content,
                 tags=_infer_tags(current_heading, content),
-                updated_at=datetime.utcnow(),
+                updated_at=datetime.now(timezone.utc),
             )
         )
 

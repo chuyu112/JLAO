@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
@@ -39,7 +39,7 @@ async def append_transcript(session_id: str, text: str) -> TranscriptSegment:
         index=len(segments) + 1,
         text=cleaned,
         keywords=extract_keywords(cleaned),
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     segments.append(segment)
     save_transcript(segment)

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.schemas import ReplayReport, Suggestion, TranscriptSegment
@@ -29,6 +29,6 @@ def build_replay_report(session_id: str, transcripts: list[TranscriptSegment], s
             "把高风险表达和安全改写整理成训练样本，开播前让新人主播朗读演练。",
             "从用户问题线索中整理价格、证书、瑕疵、自然光四类标准回答。",
         ],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
 

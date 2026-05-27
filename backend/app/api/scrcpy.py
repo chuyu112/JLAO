@@ -22,11 +22,9 @@ async def start_scrcpy(session_id: str, payload: ScrcpyStartRequest) -> dict:
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        tb = traceback.format_exc()
-        print(f"[scrcpy start error] {type(exc).__name__}: {exc}\n{tb}")
-        detail = f"{type(exc).__name__}: {exc}" if str(exc) else f"{type(exc).__name__}"
-        raise HTTPException(status_code=400, detail=detail) from exc
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="启动 scrcpy 失败，请检查设备连接和配置")
 
 
 @router.post("/sessions/{session_id}/scrcpy/stop")

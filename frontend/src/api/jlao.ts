@@ -17,7 +17,9 @@ import type {
 
 export function resolveAssetUrl(path: string) {
   if (/^https?:\/\//.test(path)) return path
-  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`
+  const token = localStorage.getItem('jlao_token') || ''
+  const fullPath = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`
+  return token ? `${fullPath}?token=${encodeURIComponent(token)}` : fullPath
 }
 
 export async function fetchProducts() {

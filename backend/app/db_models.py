@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -45,8 +45,8 @@ class LiveSessionRecord(Base):
     detected_full_name: Mapped[str] = mapped_column(String(255), default="")
     start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class TranscriptSegmentRecord(Base):
@@ -57,7 +57,7 @@ class TranscriptSegmentRecord(Base):
     index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SuggestionRecord(Base):
@@ -74,8 +74,8 @@ class SuggestionRecord(Base):
     reason: Mapped[str] = mapped_column(Text, default="")
     source_context: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(50), default="待审核")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class FrameSnapshotRecord(Base):
@@ -83,7 +83,7 @@ class FrameSnapshotRecord(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(String(64), index=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     image_path: Mapped[str] = mapped_column(Text)
     summary: Mapped[str] = mapped_column(Text, default="")
     detected_scene: Mapped[str] = mapped_column(String(100), default="未识别")
@@ -94,7 +94,7 @@ class FrameSnapshotRecord(Base):
     recognized_product_name: Mapped[str] = mapped_column(String(255), default="")
     recognition_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     recognition_source: Mapped[str] = mapped_column(String(100), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ReplayReportRecord(Base):
@@ -108,7 +108,7 @@ class ReplayReportRecord(Base):
     risk_warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     audience_questions: Mapped[list[str]] = mapped_column(JSON, default=list)
     next_suggestions: Mapped[list[str]] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class WikiChunkRecord(Base):
@@ -119,7 +119,7 @@ class WikiChunkRecord(Base):
     heading: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class VirtualCustomerRecord(Base):
@@ -137,8 +137,8 @@ class VirtualCustomerRecord(Base):
     purchased_amount: Mapped[float] = mapped_column(Float, default=0)
     relationship_strategy: Mapped[str] = mapped_column(Text, default="")
     activity_level: Mapped[float] = mapped_column(Float, default=0.5)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class CustomerMemoryRecord(Base):
@@ -152,7 +152,7 @@ class CustomerMemoryRecord(Base):
     preference_tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     interest_score: Mapped[float] = mapped_column(Float, default=0)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class VirtualCustomerEventRecord(Base):
@@ -167,7 +167,7 @@ class VirtualCustomerEventRecord(Base):
     content: Mapped[str] = mapped_column(Text)
     trigger_reason: Mapped[str] = mapped_column(Text, default="")
     priority: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class AgentProfileRecord(Base):
@@ -181,8 +181,8 @@ class AgentProfileRecord(Base):
     allowed_auto_actions: Mapped[list[str]] = mapped_column(JSON, default=list)
     risk_policy: Mapped[str] = mapped_column(Text, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class AgentUtteranceRecord(Base):
@@ -201,5 +201,5 @@ class AgentUtteranceRecord(Base):
     trigger_reason: Mapped[str] = mapped_column(Text, default="")
     wiki_chunk_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     customer_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

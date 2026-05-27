@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -18,7 +18,7 @@ async def list_sessions() -> list[LiveSession]:
 
 @router.post("", response_model=LiveSession)
 async def create_session(payload: LiveSessionCreate) -> LiveSession:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session = LiveSession(
         id=app_state.new_id("live"),
         title=payload.title,
@@ -54,7 +54,7 @@ async def set_current_product(session_id: str, product_id: str) -> LiveSession:
     if product_id not in app_state.products:
         raise HTTPException(status_code=404, detail="商品不存在")
 
-    updated = session.model_copy(update={"current_product_id": product_id, "updated_at": datetime.utcnow()})
+    updated = session.model_copy(update={"current_product_id": product_id, "updated_at": datetime.now(timezone.utc)})
     app_state.sessions[session_id] = updated
     save_live_session(updated)
     await manager.broadcast(session_id, "session_status", updated.model_dump(mode="json"))
@@ -67,7 +67,7 @@ async def set_live_url(session_id: str, payload: LiveUrlUpdate) -> LiveSession:
     if not session:
         raise HTTPException(status_code=404, detail="直播会话不存在")
 
-    updated = session.model_copy(update={"live_url": payload.live_url, "updated_at": datetime.utcnow()})
+    updated = session.model_copy(update={"live_url": payload.live_url, "updated_at": datetime.now(timezone.utc)})
     app_state.sessions[session_id] = updated
     save_live_session(updated)
     await manager.broadcast(session_id, "session_status", updated.model_dump(mode="json"))
@@ -81,7 +81,7 @@ async def start_session(session_id: str) -> LiveSession:
         raise HTTPException(status_code=404, detail="直播会话不存在")
 
     updated = session.model_copy(
-        update={"status": SessionStatus.running, "start_time": datetime.utcnow(), "updated_at": datetime.utcnow()}
+        update={"status": SessionStatus.running, "start_time": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}
     )
     app_state.sessions[session_id] = updated
     save_live_session(updated)
@@ -96,7 +96,7 @@ async def stop_session(session_id: str) -> LiveSession:
         raise HTTPException(status_code=404, detail="直播会话不存在")
 
     updated = session.model_copy(
-        update={"status": SessionStatus.stopped, "end_time": datetime.utcnow(), "updated_at": datetime.utcnow()}
+        update={"status": SessionStatus.stopped, "end_time": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}
     )
     app_state.sessions[session_id] = updated
     save_live_session(updated)
@@ -111,7 +111,7 @@ async def set_manual_product_name(session_id: str, payload: ManualProductNameUpd
         raise HTTPException(status_code=404, detail="直播会话不存在")
 
     updated = session.model_copy(
-        update={"manual_product_name": payload.manual_product_name.strip(), "updated_at": datetime.utcnow()}
+        update={"manual_product_name": payload.manual_product_name.strip(), "updated_at": datetime.now(timezone.utc)}
     )
     app_state.sessions[session_id] = updated
     save_live_session(updated)
