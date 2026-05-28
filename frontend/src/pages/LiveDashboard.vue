@@ -33,6 +33,8 @@
           <session-status-bar
             :session="store.currentSession"
             :connected="store.connected"
+            :audio-connected="store.sttConnected"
+            :audio-error="store.sttError"
             @start="handleStart"
             @stop="handleStop"
           />
@@ -106,9 +108,9 @@ async function handleStart() {
   const audioStarted = phoneCaptureReady ? Boolean(await liveSourcePanel.value?.startAudioInputCapture()) : false
 
   if (store.scrcpyInfo?.running && phoneCaptureReady && audioStarted) {
-    message.success('手机采集已启动：投屏、抽帧、音频同步运行')
+    message.success('手机采集已启动：投屏、抽帧、音频输入同步运行')
   } else if (store.scrcpyInfo?.running && phoneCaptureReady) {
-    message.warning('手机画面采集已启动，音频输入未接入，请检查浏览器麦克风权限')
+    message.error('音频没有接进来，实时转写不会有数据。请允许浏览器麦克风，或把手机声音接到电脑输入/系统音频。')
   } else if (phoneCaptureReady) {
     message.warning('抽帧已启动，投屏窗口未启动，请检查本地后端和桌面权限')
   } else {

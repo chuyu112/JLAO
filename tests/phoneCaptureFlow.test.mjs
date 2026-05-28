@@ -8,7 +8,7 @@ async function readProjectFile(path) {
   return readFile(new URL(path, ROOT), 'utf8')
 }
 
-test('phone loading is the only capture entry and starts audio capture with the phone flow', async () => {
+test('phone capture starts from one entry and exposes the required live data wall', async () => {
   const statusBar = await readProjectFile('frontend/src/components/SessionStatusBar.vue')
   const liveDashboard = await readProjectFile('frontend/src/pages/LiveDashboard.vue')
   const appTopNav = await readProjectFile('frontend/src/components/AppTopNav.vue')
@@ -27,14 +27,15 @@ test('phone loading is the only capture entry and starts audio capture with the 
   assert.equal(statusBar.includes('载入标签页'), false)
   assert.equal(statusBar.includes('载入手机端'), false)
   assert.equal(statusBar.includes('开始手机采集'), true)
-  assert.equal(statusBar.includes("loadTab"), false)
+  assert.equal(statusBar.includes('音频未接入'), true)
   assert.equal(statusBar.includes('NSelect'), false)
-  assert.equal(statusBar.includes('${product.name}｜${product.category}'), false)
+
   assert.equal(liveDashboard.includes('@load-tab'), false)
   assert.equal(liveDashboard.includes('手机实时投屏'), false)
   assert.equal(liveDashboard.includes('scrcpy 原生窗口会在电脑桌面弹出'), false)
   assert.equal(scrcpyPanel.includes('启动投屏窗口'), false)
   assert.equal(scrcpyPanel.includes('开始 1秒截屏'), false)
+
   assert.equal(productsSample.includes('冰飘花手镯'), false)
   assert.equal(productsSample.includes('晴水手镯'), false)
   assert.equal(productsSample.includes('"category": "手镯"'), false)
@@ -51,8 +52,9 @@ test('phone loading is the only capture entry and starts audio capture with the 
   assert.match(appTopNav, /客户库/)
   assert.match(appTopNav, /运营库/)
   assert.match(store, /interval_seconds: 0\.1/)
+  assert.match(store, /message\.event === 'transcript_segment'/)
   assert.match(schemas, /ge=0\.1/)
-  assert.match(apiClient, /savedApiBase \|\| import\.meta\.env\.VITE_API_BASE \|\| defaultApiBase/)
+  assert.match(apiClient, /isProductionShell \? defaultApiBase/)
   assert.match(backendMain, /https:\/\/jlao\.szkakayiduo\.com/)
   assert.match(phoneCaptureService, /QtScrcpy-dev/)
   assert.match(scrcpyService, /--jlao-usb-connect/)

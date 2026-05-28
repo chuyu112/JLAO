@@ -313,6 +313,13 @@ export const useJlaoStore = defineStore('jlao', {
         if (message.event === 'transcript_partial') {
           this.partialTranscript = (message.data as { text?: string }).text || ''
         }
+        if (message.event === 'transcript_segment') {
+          const segment = message.data as TranscriptSegment
+          this.partialTranscript = ''
+          if (!this.transcripts.some((item) => item.id === segment.id)) {
+            this.transcripts.push(segment)
+          }
+        }
       }
       this.sttSocket = socket
     },
