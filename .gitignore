@@ -21,6 +21,8 @@ __pycache__/
 *.db-journal
 *.sqlite
 *.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 *.tsbuildinfo
 uploads/
 .release/

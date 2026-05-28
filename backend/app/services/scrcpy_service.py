@@ -25,11 +25,21 @@ class ScrcpyTaskState:
     height: int = 0
 
 
+@dataclass(frozen=True)
+class ScrcpyLaunch:
+    command: list[str]
+    cwd: str | None
+    mode: str
+
+
 scrcpy_tasks: dict[str, ScrcpyTaskState] = {}
 scrcpy_clients: dict[str, list[Any]] = {}
 
 
 if sys.platform == "win32":
+    _QTSCRCPY_CANDIDATES = [
+        r"D:\JLAO\QtScrcpy-dev\output\x64\Release\QtScrcpy.exe",
+    ]
     _SCRCPY_CANDIDATES = [
         r"D:\scrcpy-win64-v3.3.4\scrcpy.exe",
         r"C:\Program Files\scrcpy\scrcpy.exe",
@@ -37,6 +47,7 @@ if sys.platform == "win32":
         r"C:\Users\Administrator\scoop\shims\scrcpy.exe",
     ]
 else:
+    _QTSCRCPY_CANDIDATES: list[str] = []
     _SCRCPY_CANDIDATES = [
         "/usr/bin/scrcpy",
         "/usr/local/bin/scrcpy",
@@ -44,16 +55,19 @@ else:
     ]
 
 
-def _get_scrcpy_exe() -> str:
-    for candidate in _SCRCPY_CANDIDATES:
+def _find_existing(candidates: list[str]) -> str | None:
+    for candidate in candidates:
         if os.path.exists(candidate):
             return candidate
+    return None
 
-    path = shutil.which("scrcpy")
-    if path:
-        return path
 
-    raise FileNotFoundError("未找到 scrcpy，请确认已安装并加入 PATH。")
+def _get_scrcpy_exe() -> str | None:
+    return _find_existing(_SCRCPY_CANDIDATES) or shutil.which("scrcpy")
+
+
+def _get_qtscrcpy_exe() -> str | None:
+    return _find_existing(_QTSCRCPY_CANDIDATES)
 
 
 def _format_bit_rate(bit_rate: int) -> str:
@@ -68,8 +82,20 @@ def _build_scrcpy_command(
     serial: str,
     max_size: int,
     bit_rate: int,
-) -> list[str]:
-    command = [_get_scrcpy_exe()]
+) -> ScrcpyLaunch:
+    qtscrcpy_exe = _get_qtscrcpy_exe()
+    if qtscrcpy_exe:
+        return ScrcpyLaunch(
+            command=[qtscrcpy_exe, "--jlao-usb-connect"],
+            cwd=os.path.dirname(qtscrcpy_exe),
+            mode="qtscrcpy",
+        )
+
+    scrcpy_exe = _get_scrcpy_exe()
+    if not scrcpy_exe:
+        raise FileNotFoundError("未找到 scrcpy.exe 或 QtScrcpy.exe，请安装命令行 scrcpy，或保留仓库内 QtScrcpy。")
+
+    command = [scrcpy_exe]
     cleaned_serial = serial.strip()
     if cleaned_serial:
         command.extend(["-s", cleaned_serial])
@@ -80,7 +106,7 @@ def _build_scrcpy_command(
         command.extend(["-b", _format_bit_rate(bit_rate)])
 
     command.extend(["--window-title", f"JLAO 投屏 - {cleaned_serial or '默认设备'}"])
-    return command
+    return ScrcpyLaunch(command=command, cwd=None, mode="scrcpy")
 
 
 async def _read_stderr(proc: asyncio.subprocess.Process, session_id: str) -> str:
@@ -148,14 +174,15 @@ async def start_scrcpy(
 
     await stop_scrcpy(session_id)
 
-    command = _build_scrcpy_command(serial, max_size, bit_rate)
+    launch = _build_scrcpy_command(serial, max_size, bit_rate)
     cleaned_serial = serial.strip()
-    print(f"[scrcpy {session_id}] Starting native window: {' '.join(command)}")
+    print(f"[scrcpy {session_id}] Starting native window ({launch.mode}): {' '.join(launch.command)}")
 
     proc = await asyncio.create_subprocess_exec(
-        *command,
+        *launch.command,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
+        cwd=launch.cwd,
     )
 
     task = asyncio.create_task(_scrcpy_monitor(session_id, proc))

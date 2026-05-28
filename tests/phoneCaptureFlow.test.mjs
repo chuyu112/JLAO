@@ -1,0 +1,60 @@
+import { readFile } from 'node:fs/promises'
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+
+const ROOT = new URL('../', import.meta.url)
+
+async function readProjectFile(path) {
+  return readFile(new URL(path, ROOT), 'utf8')
+}
+
+test('phone loading is the only capture entry and starts audio capture with the phone flow', async () => {
+  const statusBar = await readProjectFile('frontend/src/components/SessionStatusBar.vue')
+  const liveDashboard = await readProjectFile('frontend/src/pages/LiveDashboard.vue')
+  const appTopNav = await readProjectFile('frontend/src/components/AppTopNav.vue')
+  const productLibraryPanel = await readProjectFile('frontend/src/components/ProductLibraryPanel.vue')
+  const liveSourcePanel = await readProjectFile('frontend/src/components/LiveSourcePanel.vue')
+  const scrcpyPanel = await readProjectFile('frontend/src/components/ScrcpyPanel.vue')
+  const store = await readProjectFile('frontend/src/stores/jlao.ts')
+  const schemas = await readProjectFile('backend/app/schemas.py')
+  const phoneCaptureService = await readProjectFile('backend/app/services/phone_capture_service.py')
+  const scrcpyService = await readProjectFile('backend/app/services/scrcpy_service.py')
+  const backendMain = await readProjectFile('backend/app/main.py')
+  const apiClient = await readProjectFile('frontend/src/api/client.ts')
+  const productsSample = await readProjectFile('data/samples/products.json')
+  const customersSample = await readProjectFile('data/samples/virtual_customers.json')
+
+  assert.equal(statusBar.includes('载入标签页'), false)
+  assert.equal(statusBar.includes('载入手机端'), false)
+  assert.equal(statusBar.includes('开始手机采集'), true)
+  assert.equal(statusBar.includes("loadTab"), false)
+  assert.equal(statusBar.includes('NSelect'), false)
+  assert.equal(statusBar.includes('${product.name}｜${product.category}'), false)
+  assert.equal(liveDashboard.includes('@load-tab'), false)
+  assert.equal(liveDashboard.includes('手机实时投屏'), false)
+  assert.equal(liveDashboard.includes('scrcpy 原生窗口会在电脑桌面弹出'), false)
+  assert.equal(scrcpyPanel.includes('启动投屏窗口'), false)
+  assert.equal(scrcpyPanel.includes('开始 1秒截屏'), false)
+  assert.equal(productsSample.includes('冰飘花手镯'), false)
+  assert.equal(productsSample.includes('晴水手镯'), false)
+  assert.equal(productsSample.includes('"category": "手镯"'), false)
+  assert.equal(customersSample.includes('冰飘花手镯'), false)
+  assert.equal(customersSample.includes('"手镯"'), false)
+
+  assert.match(liveSourcePanel, /startAudioInputCapture/)
+  assert.match(liveDashboard, /liveSourcePanel\.value\?\.startAudioInputCapture\(\)/)
+  assert.match(liveDashboard, /refreshPhoneCaptureStatus\(\)/)
+  assert.match(liveDashboard, /frame-gallery-panel/)
+  assert.match(liveDashboard, /product-library-panel/)
+  assert.match(productLibraryPanel, /商品库/)
+  assert.match(appTopNav, /知识库/)
+  assert.match(appTopNav, /客户库/)
+  assert.match(appTopNav, /运营库/)
+  assert.match(store, /interval_seconds: 0\.1/)
+  assert.match(schemas, /ge=0\.1/)
+  assert.match(apiClient, /savedApiBase \|\| import\.meta\.env\.VITE_API_BASE \|\| defaultApiBase/)
+  assert.match(backendMain, /https:\/\/jlao\.szkakayiduo\.com/)
+  assert.match(phoneCaptureService, /QtScrcpy-dev/)
+  assert.match(scrcpyService, /--jlao-usb-connect/)
+  assert.match(scrcpyService, /QtScrcpy-dev/)
+})

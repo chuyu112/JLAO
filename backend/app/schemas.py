@@ -267,13 +267,13 @@ class ScrcpyStatus(BaseModel):
 
 class PhoneCaptureStartRequest(BaseModel):
     serial: str = ""
-    interval_seconds: float = Field(default=1.0, ge=0.5, le=10.0)
+    interval_seconds: float = Field(default=0.1, ge=0.1, le=10.0)
 
 
 class PhoneCaptureStatus(BaseModel):
     running: bool
     serial: str = ""
-    interval_seconds: float = 1.0
+    interval_seconds: float = 0.1
     last_error: str = ""
     last_frame_id: str | None = None
 

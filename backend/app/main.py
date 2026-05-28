@@ -38,6 +38,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://jlao.szkakayiduo.com",
         os.getenv("FRONTEND_URL", "http://47.120.41.143"),
     ],
     allow_credentials=True,

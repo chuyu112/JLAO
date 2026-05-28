@@ -28,6 +28,7 @@ capture_tasks: dict[str, PhoneCaptureTaskState] = {}
 
 if sys.platform == "win32":
     _ADB_CANDIDATES = [
+        r"D:\JLAO\QtScrcpy-dev\output\x64\Release\adb.exe",
         r"D:\scrcpy-win64-v3.3.4\adb.exe",
         r"C:\Program Files\scrcpy\adb.exe",
         r"C:\ProgramData\chocolatey\bin\adb.exe",
@@ -86,7 +87,7 @@ async def capture_once(session_id: str, serial: str) -> dict[str, Any]:
 async def start_capture(
     session_id: str,
     serial: str,
-    interval_seconds: float = 1.0,
+    interval_seconds: float = 0.1,
 ) -> dict[str, Any]:
     if session_id not in app_state.sessions:
         raise ValueError("直播会话不存在")
@@ -122,7 +123,7 @@ def status(session_id: str) -> dict[str, Any]:
         return {
             "running": False,
             "serial": "",
-            "interval_seconds": 1.0,
+            "interval_seconds": 0.1,
             "last_error": "",
             "last_frame_id": None,
         }

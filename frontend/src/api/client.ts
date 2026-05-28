@@ -11,7 +11,7 @@ const savedApiBase = localStorage.getItem('jlao-api-base') || ''
 const defaultApiBase = 'http://127.0.0.1:8000'
 
 export const API_BASE =
-  import.meta.env.VITE_API_BASE || savedApiBase || defaultApiBase
+  savedApiBase || import.meta.env.VITE_API_BASE || defaultApiBase
 export const WS_BASE = API_BASE.replace(/^http/, 'ws')
 
 export const api = axios.create({

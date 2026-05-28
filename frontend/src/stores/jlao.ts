@@ -359,14 +359,14 @@ export const useJlaoStore = defineStore('jlao', {
       try {
         this.phoneCaptureInfo = await startPhoneCapture(this.currentSession.id, {
           serial,
-          interval_seconds: 1,
+          interval_seconds: 0.1,
         })
       } catch (e: any) {
         const detail = e?.response?.data?.detail
         this.phoneCaptureInfo = {
           running: false,
           serial: '',
-          interval_seconds: 1,
+          interval_seconds: 0.1,
           last_error: detail || e.message || '手机截屏启动失败',
           last_frame_id: null,
         }

@@ -11,7 +11,10 @@
     <div class="top-actions">
       <div class="nav-links">
         <router-link class="nav-link" to="/live">中控台</router-link>
-        <router-link class="nav-link" to="/products">商品库</router-link>
+        <a class="nav-link" href="/live#knowledge">知识库</a>
+        <a class="nav-link" href="/live#customers">客户库</a>
+        <a class="nav-link" href="/live#products">商品库</a>
+        <a class="nav-link" href="/live#operations">运营库</a>
         <router-link class="nav-link" to="/replay">观察报告</router-link>
       </div>
       <div class="user-chip" v-if="auth.user">
@@ -19,9 +22,7 @@
         <span>{{ auth.user.display_name }}</span>
         <n-tag size="small" type="success">{{ auth.user.role }}</n-tag>
       </div>
-      <n-button size="small" quaternary @click="logout">
-        退出
-      </n-button>
+      <n-button size="small" quaternary @click="logout">退出</n-button>
     </div>
   </nav>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { NButton, NInput, NSpace, NTag } from 'naive-ui'
+import { ref } from 'vue'
+import { NTag } from 'naive-ui'
 
 defineProps<{
   sessionId: string
@@ -15,54 +15,21 @@ const emit = defineEmits<{
   (e: 'stop-capture'): void
 }>()
 
-const defaultSerial = '3AF9K24227080668'
-const serial = ref(defaultSerial)
-const connecting = ref(false)
 const connected = ref(false)
 const error = ref('')
 
-onMounted(() => {
-  const saved = localStorage.getItem('jlao-scrcpy-serial')
-  serial.value = saved || defaultSerial
-})
-
-function currentSerial() {
-  const deviceSerial = serial.value.trim()
-  localStorage.setItem('jlao-scrcpy-serial', deviceSerial)
-  return deviceSerial
-}
-
-function handleStart() {
-  error.value = ''
-  connecting.value = true
-  emit('start', currentSerial())
-}
-
-function handleStop() {
-  connected.value = false
-  connecting.value = false
-  emit('stop')
-}
-
-function handleStartCapture() {
-  emit('start-capture', currentSerial())
-}
-
 function markStarted() {
   connected.value = true
-  connecting.value = false
   error.value = ''
 }
 
 function markFailed(messageText: string) {
   connected.value = false
-  connecting.value = false
   error.value = messageText
 }
 
 function disconnect() {
   connected.value = false
-  connecting.value = false
 }
 
 defineExpose({
@@ -78,44 +45,25 @@ defineExpose({
     <div class="scrcpy-header">
       <span class="scrcpy-title">手机端控制</span>
       <NTag v-if="connected" type="success" size="small">投屏已启动</NTag>
-      <NTag v-else-if="connecting" type="warning" size="small">启动中</NTag>
       <NTag v-else type="default" size="small">未投屏</NTag>
     </div>
 
-    <NSpace vertical size="small">
-      <NInput
-        v-model:value="serial"
-        placeholder="设备序列号，可留空使用默认设备"
-        :disabled="connected || connecting || captureRunning"
-        size="small"
-      />
-      <NSpace>
-        <NButton v-if="!connected" type="primary" size="small" :loading="connecting" @click="handleStart">
-          启动投屏窗口
-        </NButton>
-        <NButton v-else type="error" size="small" @click="handleStop">
-          关闭投屏
-        </NButton>
-        <NButton
-          v-if="!captureRunning"
-          size="small"
-          type="success"
-          :loading="captureLoading"
-          @click="handleStartCapture"
-        >
-          开始 1秒截屏
-        </NButton>
-        <NButton v-else size="small" type="warning" :loading="captureLoading" @click="$emit('stop-capture')">
-          停止截屏
-        </NButton>
-      </NSpace>
-      <div v-if="error" class="scrcpy-error">{{ error }}</div>
-    </NSpace>
+    <div class="scrcpy-status-grid">
+      <div>
+        <span class="status-label">实时投屏</span>
+        <span>{{ connected ? '运行中' : '随开始手机采集自动尝试' }}</span>
+      </div>
+      <div>
+        <span class="status-label">画面采样</span>
+        <span>{{ captureRunning ? '1 秒采集中' : '未采集' }}</span>
+      </div>
+    </div>
+    <div v-if="error" class="scrcpy-error">{{ error }}</div>
 
     <div class="scrcpy-native-hint">
-      <div class="hint-title">当前模式：scrcpy 原生窗口 + adb 1FPS 截屏</div>
+      <div class="hint-title">当前模式：一个入口启动手机采集</div>
       <div class="hint-text">
-        投屏窗口负责实时操作手机；1 秒截屏会把手机画面同步到左侧手机屏区域，并进入截图识别链路。
+        顶部“开始手机采集”会统一启动会话、adb 画面采样、音频输入，并尝试打开实时投屏窗口。
       </div>
     </div>
   </div>
@@ -140,8 +88,27 @@ defineExpose({
   flex: 1;
 }
 .scrcpy-error {
+  margin-top: 8px;
   color: #d03050;
   font-size: 12px;
+}
+.scrcpy-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  font-size: 12px;
+  color: #2f3a4a;
+}
+.scrcpy-status-grid > div {
+  border: 1px solid #e4e9f2;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fbfcfe;
+}
+.status-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #667085;
 }
 .scrcpy-native-hint {
   margin-top: 10px;

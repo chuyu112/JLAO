@@ -65,6 +65,7 @@ const stream = ref<MediaStream | null>(null)
 const audioContext = ref<AudioContext | null>(null)
 const audioProcessor = ref<ScriptProcessorNode | null>(null)
 const audioSource = ref<MediaStreamAudioSourceNode | null>(null)
+const audioInputStream = ref<MediaStream | null>(null)
 const frameTimer = ref<number | null>(null)
 const captureFrameBusy = ref(false)
 const imageCapture = ref<{ grabFrame: () => Promise<ImageBitmap> } | null>(null)
@@ -194,6 +195,55 @@ async function startAudioStreaming(mediaStream: MediaStream) {
   audioProcessor.value = processor
 }
 
+async function startAudioInputCapture() {
+  if (!props.sessionId) {
+    message.error('请先载入手机端会话。')
+    return false
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    message.error('当前浏览器不支持音频输入采集，请使用最新版 Chrome 或 Edge。')
+    return false
+  }
+  if (audioInputStream.value && audioActive.value) return true
+
+  try {
+    const mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: 48000,
+      },
+      video: false,
+    })
+    audioInputStream.value = mediaStream
+    audioActive.value = true
+    emit('startStt')
+    await startAudioStreaming(mediaStream)
+    for (const audioTrack of mediaStream.getAudioTracks()) {
+      audioTrack.addEventListener('ended', () => {
+        stopAudioInputCapture()
+      })
+    }
+    message.success('音频输入已随手机端同步接入。')
+    return true
+  } catch (error) {
+    audioInputStream.value = null
+    audioActive.value = false
+    emit('stopStt')
+    message.error('音频输入未接入，请确认浏览器麦克风权限和电脑音频输入设备。')
+    return false
+  }
+}
+
+function stopAudioInputCapture() {
+  stopAudioStreaming()
+  audioInputStream.value?.getTracks().forEach((track) => track.stop())
+  audioInputStream.value = null
+  audioActive.value = false
+  emit('stopStt')
+}
+
 function stopAudioStreaming() {
   audioProcessor.value?.disconnect()
   audioSource.value?.disconnect()
@@ -318,10 +368,12 @@ function clamp(value: number, min: number, max: number) {
 }
 
 defineExpose({
-  startTabCapture: () => startWindowCapture('tab'),
+  startAudioInputCapture,
+  stopAudioInputCapture,
 })
 
 onBeforeUnmount(() => {
   stopWindowCapture()
+  stopAudioInputCapture()
 })
 </script>
