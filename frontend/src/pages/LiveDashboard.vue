@@ -1,6 +1,6 @@
 <template>
   <main class="page live-dashboard-page">
-    <app-top-nav title="JLAO 翡翠直播" subtitle="手机投屏 · 实时转写 · 运营数据墙" />
+    <app-top-nav title="自己直播间运营" subtitle="手机投屏 · 实时转写 · 运营数据墙" />
 
     <div class="dashboard one-screen-dashboard">
       <section class="main-grid ops-screen-grid">
@@ -33,8 +33,8 @@
           <session-status-bar
             :session="store.currentSession"
             :connected="store.connected"
-            :audio-connected="store.sttConnected"
-            :audio-error="store.sttError"
+            :audio-connected="store.sttConnected || Boolean(store.nativeSttInfo?.running)"
+            :audio-error="store.sttError || store.nativeSttInfo?.last_error || ''"
             @start="handleStart"
             @stop="handleStop"
           />
@@ -44,6 +44,7 @@
             class="data-panel data-panel-transcript"
             :transcripts="store.transcripts"
             :partial-transcript="store.partialTranscript"
+            :comment-events="store.liveComments"
           />
           <knowledge-panel id="knowledge" class="data-panel" :hits="store.wikiHits" :total="store.wikiChunks.length" />
           <virtual-customer-panel
@@ -90,7 +91,6 @@ import { useJlaoStore } from '../stores/jlao'
 const store = useJlaoStore()
 const message = useMessage()
 const liveSourcePanel = ref<InstanceType<typeof LiveSourcePanel> | null>(null)
-const defaultPhoneSerial = '3AF9K24227080668'
 
 onMounted(async () => {
   await store.initDemo()
@@ -99,18 +99,19 @@ onMounted(async () => {
 
 async function handleStart() {
   await store.start()
-  await store.startScrcpySession(defaultPhoneSerial)
-  await store.startPhoneCaptureSession(defaultPhoneSerial)
+  await store.startScrcpySession()
+  await store.startPhoneCaptureSession()
   await new Promise((resolve) => window.setTimeout(resolve, 1200))
   await store.refreshPhoneCaptureStatus()
 
   const phoneCaptureReady = Boolean(store.phoneCaptureInfo?.running && !store.phoneCaptureInfo?.last_error)
-  const audioStarted = phoneCaptureReady ? Boolean(await liveSourcePanel.value?.startAudioInputCapture()) : false
+  if (phoneCaptureReady) await store.startNativeSttSession()
+  const audioStarted = Boolean(store.nativeSttInfo?.running && !store.nativeSttInfo?.last_error)
 
   if (store.scrcpyInfo?.running && phoneCaptureReady && audioStarted) {
-    message.success('手机采集已启动：投屏、抽帧、音频输入同步运行')
+    message.success('手机采集已启动：投屏、抽帧、原生音频转写同步运行')
   } else if (store.scrcpyInfo?.running && phoneCaptureReady) {
-    message.error('音频没有接进来，实时转写不会有数据。请允许浏览器麦克风，或把手机声音接到电脑输入/系统音频。')
+    message.error(store.nativeSttInfo?.last_error || '原生手机音频没有接进实时转写')
   } else if (phoneCaptureReady) {
     message.warning('抽帧已启动，投屏窗口未启动，请检查本地后端和桌面权限')
   } else {
@@ -120,7 +121,7 @@ async function handleStart() {
 
 async function handleStop() {
   await store.stop()
-  liveSourcePanel.value?.stopAudioInputCapture()
+  liveSourcePanel.value?.stopProjectedAudioCapture()
   message.info('手机采集已停止')
 }
 </script>

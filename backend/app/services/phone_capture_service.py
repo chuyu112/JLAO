@@ -87,7 +87,7 @@ async def capture_once(session_id: str, serial: str) -> dict[str, Any]:
 async def start_capture(
     session_id: str,
     serial: str,
-    interval_seconds: float = 0.1,
+    interval_seconds: float = 0.2,
 ) -> dict[str, Any]:
     if session_id not in app_state.sessions:
         raise ValueError("直播会话不存在")
@@ -123,7 +123,7 @@ def status(session_id: str) -> dict[str, Any]:
         return {
             "running": False,
             "serial": "",
-            "interval_seconds": 0.1,
+            "interval_seconds": 0.2,
             "last_error": "",
             "last_frame_id": None,
         }
@@ -152,7 +152,7 @@ async def capture_loop(session_id: str, serial: str, interval_seconds: float) ->
             print(f"[phone-capture {session_id}] {exc}")
 
         elapsed = asyncio.get_running_loop().time() - started_at
-        await asyncio.sleep(max(0.1, interval_seconds - elapsed))
+        await asyncio.sleep(max(0.2, interval_seconds - elapsed))
 
 
 async def _adb_screencap(serial: str, image_path: Path) -> None:
@@ -190,7 +190,7 @@ async def _compress_screenshot(raw_image_path: Path, image_path: Path) -> None:
 
     def convert() -> None:
         with Image.open(raw_image_path) as image:
-            image.thumbnail((576, 1024), Image.Resampling.LANCZOS)
+            image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
             rgb_image = image.convert("RGB")
             rgb_image.save(image_path, format="JPEG", quality=72, optimize=True, progressive=True)
 

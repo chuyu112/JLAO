@@ -66,6 +66,7 @@ const audioContext = ref<AudioContext | null>(null)
 const audioProcessor = ref<ScriptProcessorNode | null>(null)
 const audioSource = ref<MediaStreamAudioSourceNode | null>(null)
 const audioInputStream = ref<MediaStream | null>(null)
+const projectedAudioStream = ref<MediaStream | null>(null)
 const frameTimer = ref<number | null>(null)
 const captureFrameBusy = ref(false)
 const imageCapture = ref<{ grabFrame: () => Promise<ImageBitmap> } | null>(null)
@@ -204,7 +205,13 @@ async function startAudioInputCapture() {
     message.error('当前浏览器不支持音频输入采集，请使用最新版 Chrome 或 Edge。')
     return false
   }
-  if (audioInputStream.value && audioActive.value) return true
+  if (audioInputStream.value && audioActive.value) {
+    emit('startStt')
+    if (!audioProcessor.value) {
+      await startAudioStreaming(audioInputStream.value)
+    }
+    return true
+  }
 
   try {
     const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -234,6 +241,83 @@ async function startAudioInputCapture() {
     message.error('音频输入未接入，请确认浏览器麦克风权限和电脑音频输入设备。')
     return false
   }
+}
+
+async function startProjectedAudioCapture() {
+  if (!props.sessionId) {
+    message.error('请先载入手机端会话。')
+    return false
+  }
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    message.error('当前浏览器不支持投屏音频采集，请使用最新版 Chrome 或 Edge。')
+    return false
+  }
+  if (projectedAudioStream.value && audioActive.value) {
+    if (!audioProcessor.value) {
+      await startAudioStreaming(projectedAudioStream.value)
+    }
+    emit('startStt')
+    return true
+  }
+
+  try {
+    const mediaOptions: DisplayMediaStreamOptions = {
+      video: {
+        displaySurface: 'monitor',
+        frameRate: { ideal: 1, max: 1 },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      } as MediaTrackConstraints,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: 48000,
+        suppressLocalAudioPlayback: false,
+      } as MediaTrackConstraints,
+      preferCurrentTab: false,
+      selfBrowserSurface: 'exclude',
+      systemAudio: 'include',
+      surfaceSwitching: 'exclude',
+    } as DisplayMediaStreamOptions
+
+    const mediaStream = await navigator.mediaDevices.getDisplayMedia(mediaOptions)
+    if (mediaStream.getAudioTracks().length === 0) {
+      mediaStream.getTracks().forEach((track) => track.stop())
+      projectedAudioStream.value = null
+      audioActive.value = false
+      emit('stopStt')
+      message.error('投屏系统音频未接入，请在浏览器弹窗选择整个屏幕并勾选共享系统音频。')
+      return false
+    }
+
+    projectedAudioStream.value = mediaStream
+    audioActive.value = true
+    await startAudioStreaming(mediaStream)
+    emit('startStt')
+    for (const track of mediaStream.getTracks()) {
+      track.addEventListener('ended', () => {
+        stopProjectedAudioCapture()
+      })
+    }
+    message.success('投屏声音已随手机采集接入实时转写。')
+    return true
+  } catch (error) {
+    projectedAudioStream.value = null
+    audioActive.value = false
+    emit('stopStt')
+    const secure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    message.error(secure ? '没有选择投屏音频来源。' : '浏览器要求 HTTPS 或 localhost 才能接入投屏系统音频。')
+    return false
+  }
+}
+
+function stopProjectedAudioCapture() {
+  stopAudioStreaming()
+  projectedAudioStream.value?.getTracks().forEach((track) => track.stop())
+  projectedAudioStream.value = null
+  audioActive.value = false
+  emit('stopStt')
 }
 
 function stopAudioInputCapture() {
@@ -368,12 +452,15 @@ function clamp(value: number, min: number, max: number) {
 }
 
 defineExpose({
+  startProjectedAudioCapture,
+  stopProjectedAudioCapture,
   startAudioInputCapture,
   stopAudioInputCapture,
 })
 
 onBeforeUnmount(() => {
   stopWindowCapture()
+  stopProjectedAudioCapture()
   stopAudioInputCapture()
 })
 </script>

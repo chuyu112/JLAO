@@ -252,8 +252,8 @@ class UserProfile(BaseModel):
 
 
 class ScrcpyStartRequest(BaseModel):
-    serial: str
-    max_size: int = Field(default=1080, ge=480, le=2560)
+    serial: str = ""
+    max_size: int = Field(default=1024, ge=480, le=2560)
     bit_rate: int = Field(default=4_000_000, ge=1_000_000, le=20_000_000)
 
 
@@ -267,13 +267,13 @@ class ScrcpyStatus(BaseModel):
 
 class PhoneCaptureStartRequest(BaseModel):
     serial: str = ""
-    interval_seconds: float = Field(default=0.1, ge=0.1, le=10.0)
+    interval_seconds: float = Field(default=0.2, ge=0.2, le=10.0)
 
 
 class PhoneCaptureStatus(BaseModel):
     running: bool
     serial: str = ""
-    interval_seconds: float = 0.1
+    interval_seconds: float = 0.2
     last_error: str = ""
     last_frame_id: str | None = None
 

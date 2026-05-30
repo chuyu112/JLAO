@@ -7,19 +7,23 @@ import {
   fetchAgents,
   fetchCustomerEvents,
   fetchFrames,
+  fetchLiveComments,
   fetchProducts,
   fetchSuggestions,
   fetchTranscripts,
   fetchVirtualCustomers,
   fetchWikiChunks,
   getPhoneCaptureStatus,
+  getNativeSttStatus,
   getScrcpyStatus,
   setCurrentProduct,
   setLiveUrl,
   setManualProductName,
   startPhoneCapture,
+  startNativeStt,
   startScrcpy,
   stopPhoneCapture,
+  stopNativeStt,
   startSession,
   stopScrcpy,
   stopSession,
@@ -31,6 +35,7 @@ import type {
   AgentUtterance,
   FrameSnapshot,
   LiveSession,
+  NativeSttInfo,
   PhoneCaptureInfo,
   Product,
   ReplayReport,
@@ -54,6 +59,7 @@ interface State {
   wikiHits: WikiChunk[]
   virtualCustomers: VirtualCustomer[]
   customerEvents: VirtualCustomerEvent[]
+  liveComments: VirtualCustomerEvent[]
   agents: AgentProfile[]
   agentUtterances: AgentUtterance[]
   connected: boolean
@@ -61,6 +67,7 @@ interface State {
   frameAnalyzing: boolean
   socket: WebSocket | null
   sttSocket: WebSocket | null
+  pendingSttFrames: ArrayBuffer[]
   partialTranscript: string
   sttConnected: boolean
   sttError: string
@@ -68,6 +75,8 @@ interface State {
   scrcpyLoading: boolean
   phoneCaptureInfo: PhoneCaptureInfo | null
   phoneCaptureLoading: boolean
+  nativeSttInfo: NativeSttInfo | null
+  nativeSttLoading: boolean
 }
 
 export const useJlaoStore = defineStore('jlao', {
@@ -82,6 +91,7 @@ export const useJlaoStore = defineStore('jlao', {
     wikiHits: [],
     virtualCustomers: [],
     customerEvents: [],
+    liveComments: [],
     agents: [],
     agentUtterances: [],
     connected: false,
@@ -89,6 +99,7 @@ export const useJlaoStore = defineStore('jlao', {
     frameAnalyzing: false,
     socket: null,
     sttSocket: null,
+    pendingSttFrames: [],
     partialTranscript: '',
     sttConnected: false,
     sttError: '',
@@ -96,6 +107,8 @@ export const useJlaoStore = defineStore('jlao', {
     scrcpyLoading: false,
     phoneCaptureInfo: null,
     phoneCaptureLoading: false,
+    nativeSttInfo: null,
+    nativeSttLoading: false,
   }),
 
   getters: {
@@ -192,9 +205,27 @@ export const useJlaoStore = defineStore('jlao', {
         const event = message.data as VirtualCustomerEvent
         this.customerEvents = [event, ...this.customerEvents.filter((item) => item.id !== event.id)].slice(0, 30)
       }
+      if (message.event === 'live_comment_event') {
+        const event = message.data as VirtualCustomerEvent
+        this.liveComments = [event, ...this.liveComments.filter((item) => item.id !== event.id)].slice(0, 80)
+      }
       if (message.event === 'agent_utterance') {
         const utterance = message.data as AgentUtterance
         this.agentUtterances = [utterance, ...this.agentUtterances.filter((item) => item.id !== utterance.id)].slice(0, 50)
+      }
+      if (message.event === 'stt_status') {
+        const data = message.data as { status?: string; provider?: string; source?: string }
+        this.sttConnected = data.status === 'connected'
+        if (this.sttConnected) this.sttError = ''
+      }
+      if (message.event === 'stt_error') {
+        this.sttError = (message.data as { message?: string }).message || '实时语音识别异常'
+        this.sttConnected = false
+      }
+      if (message.event === 'native_stt_status') {
+        this.nativeSttInfo = message.data as NativeSttInfo
+        this.sttConnected = Boolean(this.nativeSttInfo.running)
+        if (this.nativeSttInfo.last_error) this.sttError = this.nativeSttInfo.last_error
       }
     },
 
@@ -207,6 +238,7 @@ export const useJlaoStore = defineStore('jlao', {
     async stop() {
       if (!this.currentSession) return
       this.disconnectStt()
+      await this.stopNativeSttSession()
       await this.stopScrcpySession()
       await this.stopPhoneCaptureSession()
       this.currentSession = await stopSession(this.currentSession.id)
@@ -243,10 +275,11 @@ export const useJlaoStore = defineStore('jlao', {
 
     async refreshOperationBrainData() {
       if (!this.currentSession) return
-      const [wikiChunks, virtualCustomers, customerEvents, agents, agentUtterances] = await Promise.all([
+      const [wikiChunks, virtualCustomers, customerEvents, liveComments, agents, agentUtterances] = await Promise.all([
         fetchWikiChunks(),
         fetchVirtualCustomers(this.currentSession.id),
         fetchCustomerEvents(this.currentSession.id),
+        fetchLiveComments(this.currentSession.id),
         fetchAgents(),
         fetchAgentUtterances(this.currentSession.id),
       ])
@@ -254,6 +287,7 @@ export const useJlaoStore = defineStore('jlao', {
       this.wikiHits = this.wikiHits.length ? this.wikiHits : wikiChunks.slice(0, 5)
       this.virtualCustomers = virtualCustomers
       this.customerEvents = customerEvents
+      this.liveComments = liveComments
       this.agents = agents
       this.agentUtterances = agentUtterances
     },
@@ -281,18 +315,31 @@ export const useJlaoStore = defineStore('jlao', {
     },
 
     sendSttAudio(frame: ArrayBuffer) {
-      if (this.sttSocket?.readyState === WebSocket.OPEN) {
-        this.sttSocket.send(frame)
+      const socket = this.sttSocket
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        this.pendingSttFrames = [...this.pendingSttFrames.slice(-24), frame.slice(0)]
+        if (socket?.readyState !== WebSocket.CONNECTING) this.connectStt()
+        return
       }
+      while (this.pendingSttFrames.length > 0) {
+        const pendingFrame = this.pendingSttFrames.shift()
+        if (pendingFrame) socket.send(pendingFrame)
+      }
+      socket.send(frame)
     },
 
     connectStt() {
-      if (!this.currentSession || this.sttSocket?.readyState === WebSocket.OPEN) return
+      const readyState = this.sttSocket?.readyState
+      if (!this.currentSession || readyState === WebSocket.OPEN || readyState === WebSocket.CONNECTING) return
       this.sttError = ''
       const socket = new WebSocket(this._wsUrl(`/ws/sessions/${this.currentSession.id}/stt`))
       socket.binaryType = 'arraybuffer'
       socket.onopen = () => {
         this.sttConnected = true
+        while (this.pendingSttFrames.length > 0 && socket.readyState === WebSocket.OPEN) {
+          const frame = this.pendingSttFrames.shift()
+          if (frame) socket.send(frame)
+        }
       }
       socket.onclose = () => {
         this.sttConnected = false
@@ -327,11 +374,12 @@ export const useJlaoStore = defineStore('jlao', {
     disconnectStt() {
       this.sttSocket?.close()
       this.sttSocket = null
+      this.pendingSttFrames = []
       this.sttConnected = false
       this.partialTranscript = ''
     },
 
-    async startScrcpySession(serial: string) {
+    async startScrcpySession(serial = '') {
       if (!this.currentSession) return
       this.scrcpyLoading = true
       try {
@@ -360,20 +408,20 @@ export const useJlaoStore = defineStore('jlao', {
       this.scrcpyInfo = await getScrcpyStatus(this.currentSession.id)
     },
 
-    async startPhoneCaptureSession(serial: string) {
+    async startPhoneCaptureSession(serial = '') {
       if (!this.currentSession) return
       this.phoneCaptureLoading = true
       try {
         this.phoneCaptureInfo = await startPhoneCapture(this.currentSession.id, {
           serial,
-          interval_seconds: 0.1,
+          interval_seconds: 0.2,
         })
       } catch (e: any) {
         const detail = e?.response?.data?.detail
         this.phoneCaptureInfo = {
           running: false,
           serial: '',
-          interval_seconds: 0.1,
+          interval_seconds: 0.2,
           last_error: detail || e.message || '手机截屏启动失败',
           last_frame_id: null,
         }
@@ -390,6 +438,45 @@ export const useJlaoStore = defineStore('jlao', {
     async refreshPhoneCaptureStatus() {
       if (!this.currentSession) return
       this.phoneCaptureInfo = await getPhoneCaptureStatus(this.currentSession.id)
+    },
+
+    async startNativeSttSession(serial = '') {
+      if (!this.currentSession) return
+      this.nativeSttLoading = true
+      try {
+        this.nativeSttInfo = await startNativeStt(this.currentSession.id, {
+          serial,
+        })
+        this.sttConnected = Boolean(this.nativeSttInfo.running)
+        this.sttError = this.nativeSttInfo.last_error || ''
+      } catch (e: any) {
+        const detail = e?.response?.data?.detail
+        this.nativeSttInfo = {
+          running: false,
+          serial: '',
+          provider: 'aliyun',
+          last_error: detail || e.message || '原生手机音频转写启动失败',
+          audio_chunks: 0,
+          audio_bytes: 0,
+          transcript_segments: 0,
+        }
+        this.sttConnected = false
+        this.sttError = this.nativeSttInfo.last_error
+      } finally {
+        this.nativeSttLoading = false
+      }
+    },
+
+    async stopNativeSttSession() {
+      if (!this.currentSession) return
+      this.nativeSttInfo = await stopNativeStt(this.currentSession.id)
+      this.sttConnected = false
+    },
+
+    async refreshNativeSttStatus() {
+      if (!this.currentSession) return
+      this.nativeSttInfo = await getNativeSttStatus(this.currentSession.id)
+      this.sttConnected = Boolean(this.nativeSttInfo.running)
     },
   },
 })

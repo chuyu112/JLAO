@@ -4,6 +4,7 @@ import type {
   AgentProfile,
   AgentUtterance,
   LiveSession,
+  NativeSttInfo,
   PhoneCaptureInfo,
   Product,
   ReplayReport,
@@ -99,7 +100,7 @@ export async function fetchFrames(sessionId: string) {
   return data
 }
 
-export async function startScrcpy(sessionId: string, payload: { serial: string; max_size?: number; bit_rate?: number }) {
+export async function startScrcpy(sessionId: string, payload: { serial?: string; max_size?: number; bit_rate?: number }) {
   const { data } = await api.post<ScrcpyDeviceInfo>(`/api/sessions/${sessionId}/scrcpy/start`, payload)
   return data
 }
@@ -114,7 +115,7 @@ export async function getScrcpyStatus(sessionId: string) {
   return data
 }
 
-export async function startPhoneCapture(sessionId: string, payload: { serial: string; interval_seconds?: number }) {
+export async function startPhoneCapture(sessionId: string, payload: { serial?: string; interval_seconds?: number }) {
   const { data } = await api.post<PhoneCaptureInfo>(`/api/sessions/${sessionId}/phone-capture/start`, payload)
   return data
 }
@@ -126,6 +127,21 @@ export async function stopPhoneCapture(sessionId: string) {
 
 export async function getPhoneCaptureStatus(sessionId: string) {
   const { data } = await api.get<PhoneCaptureInfo>(`/api/sessions/${sessionId}/phone-capture/status`)
+  return data
+}
+
+export async function startNativeStt(sessionId: string, payload: { serial?: string; chunk_seconds?: number }) {
+  const { data } = await api.post<NativeSttInfo>(`/api/sessions/${sessionId}/native-stt/start`, payload)
+  return data
+}
+
+export async function stopNativeStt(sessionId: string) {
+  const { data } = await api.post<NativeSttInfo>(`/api/sessions/${sessionId}/native-stt/stop`)
+  return data
+}
+
+export async function getNativeSttStatus(sessionId: string) {
+  const { data } = await api.get<NativeSttInfo>(`/api/sessions/${sessionId}/native-stt/status`)
   return data
 }
 
@@ -151,6 +167,11 @@ export async function fetchVirtualCustomers(sessionId: string) {
 
 export async function fetchCustomerEvents(sessionId: string) {
   const { data } = await api.get<VirtualCustomerEvent[]>(`/api/sessions/${sessionId}/customer-events`)
+  return data
+}
+
+export async function fetchLiveComments(sessionId: string) {
+  const { data } = await api.get<VirtualCustomerEvent[]>(`/api/sessions/${sessionId}/live-comments`)
   return data
 }
 

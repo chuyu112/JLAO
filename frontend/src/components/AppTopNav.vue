@@ -10,7 +10,8 @@
 
     <div class="top-actions">
       <div class="nav-links">
-        <router-link class="nav-link" to="/live">中控台</router-link>
+        <router-link class="nav-link mode-nav-link" to="/live">自己运营</router-link>
+        <router-link class="nav-link mode-nav-link" to="/observe">别人分析</router-link>
         <a class="nav-link" href="/live#knowledge">知识库</a>
         <a class="nav-link" href="/live#customers">客户库</a>
         <a class="nav-link" href="/live#products">商品库</a>

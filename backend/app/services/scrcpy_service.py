@@ -34,6 +34,7 @@ class ScrcpyLaunch:
 
 scrcpy_tasks: dict[str, ScrcpyTaskState] = {}
 scrcpy_clients: dict[str, list[Any]] = {}
+SCRCPY_MAX_SIZE = 1024
 
 
 if sys.platform == "win32":
@@ -100,11 +101,13 @@ def _build_scrcpy_command(
     if cleaned_serial:
         command.extend(["-s", cleaned_serial])
 
-    if max_size > 0:
-        command.extend(["-m", str(max_size)])
+    effective_max_size = SCRCPY_MAX_SIZE
+    if effective_max_size > 0:
+        command.extend(["-m", str(effective_max_size)])
     if bit_rate > 0:
         command.extend(["-b", _format_bit_rate(bit_rate)])
 
+    command.append("--no-audio")
     command.extend(["--window-title", f"JLAO 投屏 - {cleaned_serial or '默认设备'}"])
     return ScrcpyLaunch(command=command, cwd=None, mode="scrcpy")
 
@@ -166,7 +169,7 @@ async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
 async def start_scrcpy(
     session_id: str,
     serial: str,
-    max_size: int = 1080,
+    max_size: int = SCRCPY_MAX_SIZE,
     bit_rate: int = 4_000_000,
 ) -> dict[str, Any]:
     if session_id not in app_state.sessions:
@@ -174,7 +177,8 @@ async def start_scrcpy(
 
     await stop_scrcpy(session_id)
 
-    launch = _build_scrcpy_command(serial, max_size, bit_rate)
+    effective_max_size = SCRCPY_MAX_SIZE
+    launch = _build_scrcpy_command(serial, effective_max_size, bit_rate)
     cleaned_serial = serial.strip()
     print(f"[scrcpy {session_id}] Starting native window ({launch.mode}): {' '.join(launch.command)}")
 
@@ -189,7 +193,7 @@ async def start_scrcpy(
     scrcpy_tasks[session_id] = ScrcpyTaskState(
         session_id=session_id,
         serial=cleaned_serial,
-        max_size=max_size,
+        max_size=effective_max_size,
         bit_rate=bit_rate,
         process=proc,
         task=task,

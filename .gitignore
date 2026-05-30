@@ -10,6 +10,7 @@ frontend/*.png
 !.env.example
 !.env.*.example
 .venv/
+.venv-local/
 __pycache__/
 *.pyc
 .pytest_cache/

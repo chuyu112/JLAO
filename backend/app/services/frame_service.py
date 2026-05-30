@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -7,6 +8,7 @@ from app.services.product_recognition_service import (
     extract_color_from_image,
     match_products_by_image,
 )
+from app.services.live_comment_service import process_live_comments_from_frame
 from app.repositories import save_frame_snapshot, trim_frame_snapshots
 from app.state import app_state
 from app.ws.manager import manager
@@ -84,4 +86,5 @@ async def create_frame_snapshot(session_id: str, image_path: Path, image_url: st
     save_frame_snapshot(snapshot)
     trim_frame_snapshots(session_id, keep=_MAX_FRAMES_PER_SESSION)
     await manager.broadcast(session_id, "frame_snapshot", snapshot.model_dump(mode="json"))
+    asyncio.create_task(process_live_comments_from_frame(session_id, image_path))
     return snapshot

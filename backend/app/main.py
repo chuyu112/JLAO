@@ -2,20 +2,26 @@ import asyncio
 import os
 import sys
 import traceback
+from pathlib import Path
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+WORKSPACE_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(WORKSPACE_DIR / '.env')
 
 from app.api.auth import router as auth_router
 from app.api.agents import router as agents_router
 from app.api.customers import router as customers_router
 from app.api.frames import router as frames_router
 from app.api.ffmpeg_capture import router as ffmpeg_capture_router
+from app.api.native_stt import router as native_stt_router
 from app.api.phone_capture import router as phone_capture_router
 from app.api.products import router as products_router
 from app.api.replay import router as replay_router
@@ -24,7 +30,7 @@ from app.api.sessions import router as sessions_router
 from app.api.suggestions import router as suggestions_router
 from app.api.wiki import router as wiki_router
 from app.auth_utils import get_current_user
-from app.state import WORKSPACE_DIR, app_state
+from app.state import app_state
 from app.ws.scrcpy_ws import router as scrcpy_ws_router
 from app.ws.session_ws import router as ws_router
 from app.ws.stt_ws import router as stt_ws_router
@@ -45,6 +51,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def add_private_network_access_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 
 @app.on_event("startup")
@@ -84,6 +97,7 @@ app.include_router(frames_router, prefix="/api", tags=["frames"], dependencies=_
 app.include_router(ffmpeg_capture_router, prefix="/api", tags=["ffmpeg-capture"], dependencies=_auth_dep)
 app.include_router(scrcpy_router, prefix="/api", tags=["scrcpy"], dependencies=_auth_dep)
 app.include_router(phone_capture_router, prefix="/api", tags=["phone-capture"], dependencies=_auth_dep)
+app.include_router(native_stt_router, prefix="/api", tags=["native-stt"], dependencies=_auth_dep)
 app.include_router(ws_router)
 app.include_router(stt_ws_router)
 app.include_router(scrcpy_ws_router)

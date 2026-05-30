@@ -190,3 +190,13 @@ export interface SttStatus {
   active: boolean
   error: string
 }
+
+export interface NativeSttInfo {
+  running: boolean
+  serial: string
+  provider: string
+  last_error: string
+  audio_chunks: number
+  audio_bytes: number
+  transcript_segments: number
+}

@@ -3,10 +3,8 @@
     <div class="status-left">
       <n-tag :type="statusType" size="large">{{ statusLabel }}</n-tag>
       <div>
-        <div class="panel-title">{{ session?.title || 'JLAO 翡翠直播' }}</div>
-        <div class="transcript-meta">
-          平台：{{ session?.platform || '-' }} · 主播：{{ session?.anchor_name || '-' }} · 场控：{{ session?.operator_name || '-' }}
-        </div>
+        <div class="panel-title">{{ statusTitle }}</div>
+        <div class="transcript-meta">{{ metaLine }}</div>
       </div>
     </div>
 
@@ -19,11 +17,11 @@
       </n-tag>
       <n-button type="primary" size="small" :disabled="isRunningStatus(session?.status)" @click="$emit('start')">
         <template #icon><play :size="16" /></template>
-        开始手机采集
+        {{ startButtonLabel }}
       </n-button>
       <n-button size="small" secondary type="error" :disabled="!isRunningStatus(session?.status)" @click="$emit('stop')">
         <template #icon><square :size="16" /></template>
-        停止采集
+        {{ stopButtonLabel }}
       </n-button>
     </div>
   </section>
@@ -40,6 +38,7 @@ const props = defineProps<{
   connected: boolean
   audioConnected: boolean
   audioError: string
+  mode?: 'own' | 'observe'
 }>()
 
 defineEmits<{
@@ -49,9 +48,9 @@ defineEmits<{
 
 const statusLabel = computed(() => {
   const status = String(props.session?.status || '')
-  if (isRunningStatus(status)) return '手机端已载入'
+  if (isRunningStatus(status)) return isObservation.value ? '观察已载入' : '手机端已载入'
   if (status.includes('结束')) return '已结束'
-  return '待载入'
+  return isObservation.value ? '待观察' : '待载入'
 })
 
 const statusType = computed(() => {
@@ -60,6 +59,23 @@ const statusType = computed(() => {
   if (status.includes('结束')) return 'default'
   return 'warning'
 })
+
+const isObservation = computed(() => props.mode === 'observe')
+
+const statusTitle = computed(() => {
+  if (props.session?.title) return props.session.title
+  return isObservation.value ? '别人直播间分析' : 'JLAO 翡翠直播'
+})
+
+const metaLine = computed(() => {
+  const platform = props.session?.platform || '-'
+  const anchor = props.session?.anchor_name || '-'
+  if (isObservation.value) return `平台：${platform} · 主播：${anchor} · 黑盒观察`
+  return `平台：${platform} · 主播：${anchor} · 场控：${props.session?.operator_name || '-'}`
+})
+
+const startButtonLabel = computed(() => (isObservation.value ? '开始观察采集' : '开始手机采集'))
+const stopButtonLabel = computed(() => (isObservation.value ? '停止观察' : '停止采集'))
 
 function isRunningStatus(status: unknown) {
   const value = String(status || '')

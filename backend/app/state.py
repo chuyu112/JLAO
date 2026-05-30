@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from app.schemas import (
@@ -11,6 +12,7 @@ from app.schemas import (
     Suggestion,
     TranscriptSegment,
     VirtualCustomer,
+    VirtualCustomerEvent,
 )
 
 
@@ -26,6 +28,8 @@ class AppState:
         self.suggestions: dict[str, list[Suggestion]] = {}
         self.reports: dict[str, ReplayReport] = {}
         self.frames: dict[str, list[FrameSnapshot]] = {}
+        self.live_comments: dict[str, list[VirtualCustomerEvent]] = {}
+        self.live_comment_ocr_status: dict[str, dict[str, Any]] = {}
 
     def load_seed_data(self) -> None:
         from app.db import init_db

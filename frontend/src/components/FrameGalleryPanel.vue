@@ -1,14 +1,34 @@
 <template>
-  <section class="panel frame-gallery-panel">
+  <section class="panel frame-gallery-panel" :class="{ 'is-collapsed': collapsed }">
     <header class="panel-header">
-      <div>
+      <div class="frame-gallery-heading">
         <div class="panel-title">截屏卡片</div>
-        <div class="transcript-meta">手动上传或截图后显示在这里</div>
+        <div class="transcript-meta">{{ collapsed ? collapsedMeta : '手动上传或截图后显示在这里' }}</div>
       </div>
-      <n-tag size="small" type="info">{{ frames.length }} 张</n-tag>
+      <div class="frame-gallery-actions">
+        <n-tag size="small" type="info">{{ frames.length }} 张</n-tag>
+        <n-button size="tiny" quaternary :aria-expanded="!collapsed" @click="toggleCollapsed">
+          <template #icon>
+            <chevron-right v-if="collapsed" :size="14" />
+            <chevron-down v-else :size="14" />
+          </template>
+          {{ collapsed ? '展开' : '折叠' }}
+        </n-button>
+      </div>
     </header>
 
-    <div class="panel-body frame-gallery-body">
+    <div v-if="collapsed" class="frame-gallery-strip">
+      <template v-if="latestFrame">
+        <img class="frame-gallery-strip-image" :src="resolveAssetUrl(latestFrame.image_path)" :alt="latestFrame.detected_scene" />
+        <div class="frame-gallery-strip-copy">
+          <strong>{{ latestFrame.recognized_product_name || latestFrame.detected_scene }}</strong>
+          <span>{{ formatTime(latestFrame.created_at) }} · 清晰度 {{ formatScore(latestFrame.sharpness_score) }}</span>
+        </div>
+      </template>
+      <div v-else class="frame-gallery-strip-empty">暂无截图</div>
+    </div>
+
+    <div v-if="!collapsed" class="panel-body frame-gallery-body">
       <div v-if="frames.length === 0" class="empty-state compact">上传截图后，这里会显示识别卡片。</div>
       <div v-else class="frame-card-list">
         <article v-for="frame in frames" :key="frame.id" class="frame-card">
@@ -29,13 +49,26 @@
 </template>
 
 <script setup lang="ts">
-import { NTag } from 'naive-ui'
+import { computed, ref } from 'vue'
+import { NButton, NTag } from 'naive-ui'
+import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { resolveAssetUrl } from '../api/jlao'
 import type { FrameSnapshot } from '../types'
 
-defineProps<{
+const props = defineProps<{
   frames: FrameSnapshot[]
 }>()
+
+const collapsed = ref(true)
+const latestFrame = computed(() => props.frames[0] || null)
+const collapsedMeta = computed(() => {
+  if (!latestFrame.value) return '默认折叠，不占主屏空间'
+  return `最新：${latestFrame.value.recognized_product_name || latestFrame.value.detected_scene}`
+})
+
+function toggleCollapsed() {
+  collapsed.value = !collapsed.value
+}
 
 function formatScore(value: number | null | undefined) {
   return value == null ? '-' : String(Math.round(value))

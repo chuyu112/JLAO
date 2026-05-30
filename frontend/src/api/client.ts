@@ -8,9 +8,11 @@ if (queryApiBase) {
 const savedApiBase = localStorage.getItem('jlao-api-base') || ''
 const defaultApiBase = 'http://127.0.0.1:8000'
 const isProductionShell = window.location.hostname === 'jlao.szkakayiduo.com'
+const deployedApiBase = import.meta.env.VITE_API_BASE || window.location.origin
 
 export const API_BASE =
-  queryApiBase || (isProductionShell ? defaultApiBase : savedApiBase || import.meta.env.VITE_API_BASE || defaultApiBase)
+  queryApiBase ||
+  (isProductionShell ? savedApiBase || defaultApiBase : savedApiBase || deployedApiBase || defaultApiBase)
 export const WS_BASE = API_BASE.replace(/^http/, 'ws')
 
 export const api = axios.create({

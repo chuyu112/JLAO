@@ -273,5 +273,260 @@ class ObservationReportTests(unittest.TestCase):
         self.assertTrue(any("训练样本" in item for item in report.next_suggestions))
 
 
+class SttWebsocketTests(unittest.TestCase):
+    def test_disconnect_runtime_error_is_treated_as_normal_close(self) -> None:
+        from app.ws.stt_ws import _is_expected_disconnect_error
+
+        error = RuntimeError('Cannot call "receive" once a disconnect message has been received.')
+
+        self.assertTrue(_is_expected_disconnect_error(error))
+
+
+class ScrcpyCommandTests(unittest.TestCase):
+    def test_projection_scrcpy_disables_audio_forwarding(self) -> None:
+        from unittest.mock import patch
+
+        from app.services.scrcpy_service import _build_scrcpy_command
+
+        with (
+            patch("app.services.scrcpy_service._get_qtscrcpy_exe", return_value=None),
+            patch("app.services.scrcpy_service._get_scrcpy_exe", return_value=r"D:\scrcpy-win64-v3.3.4\scrcpy.exe"),
+        ):
+            launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
+
+        self.assertIn("--no-audio", launch.command)
+
+
+class NativeSttServiceTests(unittest.TestCase):
+    def test_audio_record_command_keeps_device_playback_alive(self) -> None:
+        from pathlib import Path
+
+        from app.services.native_stt_service import _build_audio_record_command
+
+        command = _build_audio_record_command(
+            scrcpy_exe=r"D:\scrcpy-win64-v3.3.4\scrcpy.exe",
+            serial="",
+            output_path=Path("chunk.wav"),
+            chunk_seconds=3,
+        )
+
+        self.assertIn("--audio-source=voice-performance", command)
+        self.assertIn("--no-audio-playback", command)
+        self.assertNotIn("--time-limit", command)
+        self.assertNotIn("--audio-dup", command)
+        self.assertNotIn("--audio-source=playback", command)
+        self.assertNotIn("--audio-source=output", command)
+
+    def test_streaming_wav_data_offset_is_detected_from_scrcpy_header(self) -> None:
+        from app.services.native_stt_service import _find_wav_data_offset
+
+        header = (
+            b"RIFF\xff\xff\xff\xffWAVEfmt \x10\x00\x00\x00\x01\x00\x02\x00"
+            b"\x80\xbb\x00\x00\x00\xee\x02\x00\x04\x00\x10\x00"
+            b"LIST\x04\x00\x00\x00testdata\xff\xff\xff\xff"
+        )
+
+        self.assertEqual(_find_wav_data_offset(header), len(header))
+
+    def test_default_serial_native_stt_tasks_share_one_device_slot(self) -> None:
+        from types import SimpleNamespace
+
+        from app.services.native_stt_service import _sessions_for_native_stt_device, native_stt_tasks
+
+        existing = dict(native_stt_tasks)
+        try:
+            native_stt_tasks.clear()
+            native_stt_tasks["old-default"] = SimpleNamespace(serial="")
+            native_stt_tasks["explicit"] = SimpleNamespace(serial="ABC123")
+
+            self.assertEqual(_sessions_for_native_stt_device(""), ["old-default"])
+            self.assertEqual(_sessions_for_native_stt_device("ABC123"), ["explicit"])
+        finally:
+            native_stt_tasks.clear()
+            native_stt_tasks.update(existing)
+
+    def test_wav_to_pcm16_mono_16k_downmixes_and_resamples(self) -> None:
+        import struct
+        import tempfile
+        import wave
+
+        from app.services.native_stt_service import _wav_to_pcm16_mono_16k
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+            temp_path = temp_file.name
+
+        try:
+            with wave.open(temp_path, "wb") as wav_file:
+                wav_file.setnchannels(2)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(48000)
+                frame = struct.pack("<hh", 1200, -1200)
+                wav_file.writeframes(frame * 48000)
+
+            pcm = _wav_to_pcm16_mono_16k(temp_path)
+
+            self.assertEqual(len(pcm), 16000 * 2)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+
+class LiveCommentOcrTests(unittest.TestCase):
+    def test_ocr_lines_are_parsed_into_real_live_comment_events(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import events_from_ocr_lines
+
+        events = events_from_ocr_lines(
+            session_id="live-001",
+            lines=[
+                "粉丝 莲**：林老师的作品不是都被博物馆收起来了吗？",
+                "江苏健康广播 FM100.5",
+                "K** 关注了主播",
+                "聊一聊",
+            ],
+            now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual([event.customer_nickname for event in events], ["莲**", "K**"])
+        self.assertEqual(events[0].customer_level, "真实弹幕")
+        self.assertEqual(events[0].event_type, "弹幕")
+        self.assertEqual(events[0].content, "林老师的作品不是都被博物馆收起来了吗？")
+        self.assertEqual(events[1].event_type, "关注")
+        self.assertNotIn("江苏健康广播", [event.content for event in events])
+
+    def test_windows_ocr_spaced_lines_are_joined_into_comments(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import events_from_ocr_lines
+
+        events = events_from_ocr_lines(
+            session_id="live-001",
+            lines=[
+                "萍 * * 林 老 师 的 作 品 不 是 都 博 物 馆 收",
+                "藏 起 来 了 吗 ， 小 胖 总 今 天 还 带 来 ？",
+                "K** 关 注 了 主 播",
+                "畝 * * 太 想 看 看 了",
+                "中 国 工 艺 美 术 大 师 ， 国 家 高 级 工",
+            ],
+            now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(events[0].customer_nickname, "萍**")
+        self.assertEqual(events[0].content, "林老师的作品不是都博物馆收藏起来了吗，小胖总今天还带来？")
+        self.assertEqual(events[1].customer_nickname, "K**")
+        self.assertEqual(events[1].event_type, "关注")
+        self.assertEqual(events[2].event_type, "弹幕")
+        self.assertEqual(events[2].content, "太想看看了")
+        self.assertEqual(len(events), 3)
+
+    def test_content_only_ocr_lines_are_buffered_when_nickname_is_missed(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        events = events_from_ocr_lines(
+            session_id="live-001",
+            lines=[
+                "精品",
+                "很难播 0@都是眼高手低管管",
+                "我这个月刚去 还在学习 都是接播",
+                "翡翠特色雕刻件专场",
+            ],
+            now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual([event.customer_nickname for event in events], ["", ""])
+        self.assertEqual(dedupe_live_comment_events("live-content-only", events), [])
+
+    def test_repeated_live_comment_events_are_deduped_per_session(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        now = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+        first = events_from_ocr_lines("live-ocr-dedupe", ["粉丝 玖**：太想看看了"], now=now)
+        repeated = events_from_ocr_lines("live-ocr-dedupe", ["玖**：太想看看了"], now=now)
+
+        self.assertEqual(len(dedupe_live_comment_events("live-ocr-dedupe", first)), 1)
+        self.assertEqual(dedupe_live_comment_events("live-ocr-dedupe", repeated), [])
+
+    def test_noisy_repeated_live_comments_are_deduped_by_content(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        now = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+        first = events_from_ocr_lines("live-noisy-dedupe", ["粉丝 亮***：老板挺好的已经干了五六年了"], now=now)
+        repeated = events_from_ocr_lines("live-noisy-dedupe", ["亮***：老板挺好的已经干了五六年了"], now=now)
+
+        self.assertEqual(len(dedupe_live_comment_events("live-noisy-dedupe", first)), 1)
+        self.assertEqual(dedupe_live_comment_events("live-noisy-dedupe", repeated), [])
+
+    def test_later_clearer_ocr_publishes_pending_comment_with_nickname(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+        from app.state import app_state
+
+        session_id = "live-ocr-refine"
+        now = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+        app_state.live_comments[session_id] = []
+
+        try:
+            first = events_from_ocr_lines(session_id, ["老板挺好的已经干了五六年了"], now=now)
+            published = dedupe_live_comment_events(session_id, first)
+            self.assertEqual(published, [])
+
+            clearer = events_from_ocr_lines(session_id, ["亮***：老板挺好的已经干了五六年了"], now=now)
+            updated = dedupe_live_comment_events(session_id, clearer)
+
+            self.assertEqual(len(updated), 1)
+            self.assertEqual(updated[0].customer_nickname, "亮***")
+            self.assertEqual(updated[0].content, "老板挺好的已经干了五六年了")
+        finally:
+            app_state.live_comments.pop(session_id, None)
+
+    def test_numeric_only_ocr_nickname_is_buffered_until_clearer(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        now = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+        noisy = events_from_ocr_lines("live-noisy-nickname", ["4：封底就垫色了"], now=now)
+        clearer = events_from_ocr_lines("live-noisy-nickname", ["用***：封底就垫色了"], now=now)
+
+        self.assertEqual(dedupe_live_comment_events("live-noisy-nickname", noisy), [])
+        published = dedupe_live_comment_events("live-noisy-nickname", clearer)
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].customer_nickname, "用***")
+
+    def test_ocr_noise_is_removed_from_masked_nickname_prefixes(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import events_from_ocr_lines
+
+        events = events_from_ocr_lines(
+            "live-nickname-clean",
+            ["00 可** *：几百啊"],
+            now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].customer_nickname, "可***")
+
+    def test_ocr_errors_are_sanitized_before_logging(self) -> None:
+        from app.services.live_comment_service import sanitize_ocr_error
+
+        message = "https://ocr-api.cn-hangzhou.aliyuncs.com/?AccessKeyId=abc&Signature=secret&SignatureNonce=nonce"
+
+        sanitized = sanitize_ocr_error(message)
+
+        self.assertNotIn("abc", sanitized)
+        self.assertNotIn("secret", sanitized)
+        self.assertNotIn("nonce", sanitized)
+        self.assertIn("AccessKeyId=<redacted>", sanitized)
+
+
 if __name__ == "__main__":
     unittest.main()
