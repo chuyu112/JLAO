@@ -17,17 +17,29 @@ from pathlib import Path
 from typing import Any
 
 from app.schemas import VirtualCustomerEvent
+from app.services.live_room_profile_service import live_badge_catalog
 from app.state import app_state
 from app.ws.manager import manager
 
 
 logger = logging.getLogger(__name__)
 
+# RapidOCR 配置
+RAPIDOCR_AVAILABLE = False
+try:
+    from rapidocr import RapidOCR
+    _rapidocr_engine = RapidOCR()
+    RAPIDOCR_AVAILABLE = True
+    logger.info("RapidOCR 已加载")
+except ImportError:
+    logger.warning("RapidOCR 未安装，使用 fallback OCR")
+    _rapidocr_engine = None
+
 ALIYUN_OCR_AK_ID = os.getenv("ALIYUN_AK_ID") or os.getenv("ALIYUN_ACCESS_KEY_ID", "")
 ALIYUN_OCR_AK_SECRET = os.getenv("ALIYUN_AK_SECRET") or os.getenv("ALIYUN_ACCESS_KEY_SECRET", "")
 ALIYUN_OCR_REGION = os.getenv("ALIYUN_OCR_REGION", "cn-hangzhou")
 ALIYUN_OCR_ENDPOINT = os.getenv("ALIYUN_OCR_ENDPOINT", "ocr-api.cn-hangzhou.aliyuncs.com")
-COMMENT_OCR_INTERVAL_SECONDS = float(os.getenv("JLAO_COMMENT_OCR_INTERVAL_SECONDS", "1.0"))
+COMMENT_OCR_INTERVAL_SECONDS = float(os.getenv("JLAO_COMMENT_OCR_INTERVAL_SECONDS", "0.5"))
 MAX_LIVE_COMMENTS_PER_SESSION = 200
 MAX_SEEN_SIGNATURES_PER_SESSION = 600
 MAX_PENDING_COMMENT_EVENTS_PER_SESSION = 200
@@ -40,9 +52,58 @@ _seen_comment_texts: dict[str, list[str]] = {}
 _pending_comment_events: dict[str, list[VirtualCustomerEvent]] = {}
 _warned_not_configured = False
 
-_BADGE_PATTERN = re.compile(r"^(?:粉丝|新粉|铁粉|灯牌|观众|粉丝团|管理员)\s*")
+# 帧级 OCR 结果缓存：session_id -> [(timestamp, lines), ...]
+_frame_ocr_cache: dict[str, list[tuple[float, list[str]]]] = {}
+MAX_FRAME_CACHE_SIZE = 5
+
+# 同一帧多次 OCR 配置
+MAX_OCR_RETRIES_PER_VARIANT = 5
+
+_BADGE_LABELS = ("资深买家", "粉丝团", "管理员", "【主播】", "[主播]", "主播", "粉丝", "新粉", "铁粉", "灯牌", "观众")
+_CONTRIBUTION_PREFIX_PATTERN = re.compile(r"^(?:\+|＋)\s*\d{1,3}\s*")
+_LIGHT_BADGE_OCR_LEVEL_PREFIX = r"(?:\d{1,3}|[零一二三四五六七八九十几]{1,3})?"
+_LIGHT_BADGE_OCR_LEVEL_TEXT = r"(?:\d{1,3}|[零一二三四五六七八九十几]{1,3})"
+_VIDEO_ACCOUNT_LIGHT_BADGE_NAMES, _LIGHT_BADGE_CANONICAL_BY_LABEL = live_badge_catalog()
+_LIGHT_BADGE_NAME_TEXT = "|".join(re.escape(name) for name in sorted(_VIDEO_ACCOUNT_LIGHT_BADGE_NAMES, key=len, reverse=True))
+_PROFILE_LIGHT_BADGE_ALIAS_TEXT = "|".join(
+    re.escape(alias)
+    for alias in sorted(
+        [label for label in _LIGHT_BADGE_CANONICAL_BY_LABEL if label not in _VIDEO_ACCOUNT_LIGHT_BADGE_NAMES],
+        key=len,
+        reverse=True,
+    )
+)
+_MASKED_NICKNAME_FRAGMENT = r"[A-Za-z0-9_\u4e00-\u9fff.-]\*{1,3}"
+_VIDEO_ACCOUNT_LIGHT_BADGE_OCR_ALIAS_TEXT = rf"{_LIGHT_BADGE_OCR_LEVEL_TEXT}级富婆"
+_CUSTOM_LIGHT_BADGE_PARTS = [
+    rf"{_LIGHT_BADGE_OCR_LEVEL_PREFIX}(?:{_LIGHT_BADGE_NAME_TEXT})",
+    _VIDEO_ACCOUNT_LIGHT_BADGE_OCR_ALIAS_TEXT,
+]
+if _PROFILE_LIGHT_BADGE_ALIAS_TEXT:
+    _CUSTOM_LIGHT_BADGE_PARTS.append(rf"(?:{_PROFILE_LIGHT_BADGE_ALIAS_TEXT})")
+_CUSTOM_LIGHT_BADGE_TEXT = rf"(?:{'|'.join(_CUSTOM_LIGHT_BADGE_PARTS)})"
+_VIDEO_ACCOUNT_LIGHT_BADGE_OCR_ALIAS_PATTERN = re.compile(
+    rf"^(?:{_VIDEO_ACCOUNT_LIGHT_BADGE_OCR_ALIAS_TEXT}{'|' + _PROFILE_LIGHT_BADGE_ALIAS_TEXT if _PROFILE_LIGHT_BADGE_ALIAS_TEXT else ''})$"
+)
+_CUSTOM_LIGHT_BADGE_PATTERN = re.compile(rf"^({_CUSTOM_LIGHT_BADGE_TEXT})\s*")
+_CUSTOM_LIGHT_BADGE_WITH_NICKNAME_PATTERN = re.compile(
+    rf"^({_CUSTOM_LIGHT_BADGE_TEXT})({_MASKED_NICKNAME_FRAGMENT}.*)$"
+)
+_CUSTOM_BADGE_PREFIX_PATTERN = re.compile(rf"^(?:{_CUSTOM_LIGHT_BADGE_TEXT}\s*)")
+_BADGE_PATTERN = re.compile(rf"^(?:{'|'.join(re.escape(label) for label in _BADGE_LABELS)})\s*")
+_NOISY_MASKED_NICKNAME_PREFIX_PATTERN = re.compile(r"^的(?=[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff.-]*\*{1,3})")
+_NOISY_LATIN_MASKED_NICKNAME_PREFIX_PATTERN = re.compile(r"^[\u4e00-\u9fff](?=[A-Za-z][A-Za-z0-9_.-]*\*{1,3}$)")
+_FAN_TAGS = {"粉丝", "新粉", "铁粉", "粉丝团"}
 _COMMENT_SPLIT_PATTERN = re.compile(r"^(.{1,20}?)[：:]\s*(.{2,})$")
-_BADGED_LINE_PATTERN = re.compile(r"^(?:粉丝|新粉|铁粉|灯牌|观众|粉丝团|管理员)\s+([^\s：:]{1,16})\s+(.{2,})$")
+_BADGED_PREFIX_TOKEN_PATTERN = (
+    rf"(?:(?:{'|'.join(re.escape(label) for label in _BADGE_LABELS)})|(?:\+|＋)\s*\d{{1,3}}|{_CUSTOM_LIGHT_BADGE_TEXT})"
+)
+_BADGED_LINE_PATTERN = re.compile(
+    rf"^((?:{_BADGED_PREFIX_TOKEN_PATTERN}\s*)+)([^\s：:]{{1,16}})\s+(.{{2,}})$"
+)
+_COMPACT_LIGHT_BADGED_LINE_PATTERN = re.compile(
+    rf"^(({_CUSTOM_LIGHT_BADGE_TEXT}))({_MASKED_NICKNAME_FRAGMENT})\s+(.{{2,}})$"
+)
 _MASKED_NICKNAME_PATTERN = re.compile(r"^([A-Za-z0-9_\u4e00-\u9fff.-]{1,14}\*{1,3})\s+(.{2,})$")
 _SENSITIVE_QUERY_PATTERN = re.compile(r"\b(AccessKeyId|Signature|SignatureNonce)=([^&\s)]+)")
 _WINDOWS_OCR_SCRIPT = r"""
@@ -143,14 +204,17 @@ async def process_live_comments_from_frame(session_id: str, image_path: Path) ->
             _update_ocr_status(session_id, running=False, last_error=error, last_line_count=0, last_event_count=0)
             return []
 
-        events = dedupe_live_comment_events(session_id, events_from_ocr_lines(session_id, lines))
+        # 多帧合并：与历史帧结果合并
+        merged_lines = _merge_with_frame_cache(session_id, lines)
+
+        events = dedupe_live_comment_events(session_id, events_from_ocr_lines(session_id, merged_lines))
         _update_ocr_status(
             session_id,
             running=False,
             last_error="",
-            last_line_count=len(lines),
+            last_line_count=len(merged_lines),
             last_event_count=len(events),
-            last_lines=lines[:12],
+            last_lines=merged_lines[:12],
         )
         if not events:
             return []
@@ -169,22 +233,66 @@ async def process_live_comments_from_frame(session_id: str, image_path: Path) ->
 
 async def recognize_comment_lines(image_path: Path) -> list[str]:
     image_variants = await asyncio.to_thread(_read_comment_region_variants, image_path)
-    windows_lines: list[str] = []
-    windows_unavailable = False
-    for image_bytes in image_variants:
-        try:
-            windows_lines.extend(await asyncio.to_thread(_recognize_with_windows_ocr, image_bytes))
-        except WindowsOcrUnavailable:
-            windows_unavailable = True
-            break
-        except Exception as exc:
-            logger.debug("Windows OCR variant failed: %s", sanitize_ocr_error(str(exc)))
+    if not image_variants:
+        return []
 
-    if not windows_unavailable:
+    # 使用 Windows OCR
+    windows_lines, windows_ok = await _recognize_all_with_windows(image_variants)
+    if windows_ok:
         return _unique_clean_lines(windows_lines)
 
-    payload = await asyncio.to_thread(_recognize_general_with_aliyun, image_variants[0])
-    return extract_ocr_lines(payload)
+    return []
+
+
+async def _recognize_all_with_windows(image_variants: list[bytes]) -> tuple[list[str], bool]:
+    """用 RapidOCR / Tesseract / Windows OCR 识别所有 variant，返回 (结果, 是否成功)。"""
+    all_lines: list[str] = []
+
+    # 优先使用 RapidOCR（准确率最高）
+    if RAPIDOCR_AVAILABLE:
+        for image_bytes in image_variants:
+            try:
+                lines = await asyncio.to_thread(_recognize_with_rapidocr, image_bytes)
+                all_lines.extend(lines)
+            except Exception as exc:
+                logger.debug("RapidOCR failed: %s", str(exc))
+        if all_lines:
+            return all_lines, True
+
+    # fallback 到 Tesseract OCR（Linux 服务器）
+    if shutil.which("tesseract"):
+        for image_bytes in image_variants:
+            try:
+                lines = await asyncio.to_thread(_recognize_with_tesseract, image_bytes)
+                all_lines.extend(lines)
+            except Exception as exc:
+                logger.debug("Tesseract OCR failed: %s", str(exc))
+        if all_lines:
+            return all_lines, True
+
+    # fallback 到 Windows OCR
+    for image_bytes in image_variants:
+        for attempt in range(MAX_OCR_RETRIES_PER_VARIANT):
+            try:
+                lines = await asyncio.to_thread(_recognize_with_windows_ocr, image_bytes)
+                all_lines.extend(lines)
+            except WindowsOcrUnavailable:
+                return all_lines, False
+            except Exception as exc:
+                logger.debug("Windows OCR variant %d attempt %d failed: %s", image_variants.index(image_bytes), attempt, sanitize_ocr_error(str(exc)))
+    return all_lines, bool(all_lines)
+
+
+async def _recognize_with_aliyun_if_configured(image_bytes: bytes) -> tuple[list[str], bool]:
+    """用阿里云 OCR 识别，返回 (结果, 是否成功)。"""
+    try:
+        payload = await asyncio.to_thread(_recognize_general_with_aliyun, image_bytes)
+        return extract_ocr_lines(payload), True
+    except AliyunOcrNotConfigured:
+        return [], False
+    except Exception as exc:
+        logger.debug("阿里云 OCR failed: %s", sanitize_ocr_error(str(exc)))
+        return [], False
 
 
 def events_from_ocr_lines(
@@ -200,17 +308,19 @@ def events_from_ocr_lines(
         if not parsed:
             continue
 
-        nickname, content, event_type = parsed
+        nickname, content, event_type, customer_tags = parsed
         event_key = f"{session_id}|{nickname}|{content}|{created_at.isoformat()}|{len(events)}"
         event_id = f"lcomm-{hashlib.sha1(event_key.encode('utf-8')).hexdigest()[:12]}"
         customer_id = f"live-{hashlib.sha1(nickname.encode('utf-8')).hexdigest()[:10]}" if nickname else "live-pending"
+        customer_level = " · ".join(customer_tags) if customer_tags else "真实弹幕"
         events.append(
             VirtualCustomerEvent(
                 id=event_id,
                 session_id=session_id,
                 customer_id=customer_id,
                 customer_nickname=nickname,
-                customer_level="真实弹幕",
+                customer_level=customer_level,
+                customer_tags=customer_tags,
                 event_type=event_type,
                 content=content,
                 trigger_reason="手机截图弹幕 OCR",
@@ -332,6 +442,70 @@ def _recognize_with_windows_ocr(image_bytes: bytes) -> list[str]:
                 pass
 
 
+def _recognize_with_tesseract(image_bytes: bytes) -> list[str]:
+    """使用 Tesseract OCR 识别图片中的文字。"""
+    import tempfile
+
+    temp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(prefix="jlao-comment-ocr-", suffix=".jpg", delete=False) as temp_file:
+            temp_file.write(image_bytes)
+            temp_path = temp_file.name
+
+        # 使用 Tesseract 识别中文
+        completed = subprocess.run(
+            ["tesseract", temp_path, "stdout", "-l", "chi_sim+eng", "--psm", "6"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(f"Tesseract OCR 失败：{completed.stderr}")
+
+        return [line for line in completed.stdout.splitlines() if line.strip()]
+    finally:
+        if temp_path:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _recognize_with_rapidocr(image_bytes: bytes) -> list[str]:
+    """使用 RapidOCR 识别图片中的文字。"""
+    if not RAPIDOCR_AVAILABLE or _rapidocr_engine is None:
+        raise RuntimeError("RapidOCR 未安装")
+
+    try:
+        from PIL import Image
+        import numpy as np
+    except ImportError:
+        raise RuntimeError("Pillow 未安装，无法使用 RapidOCR")
+
+    try:
+        # 将 bytes 转为 PIL Image
+        image = Image.open(io.BytesIO(image_bytes))
+        # 转为 numpy array
+        img_array = np.array(image)
+        # 使用 RapidOCR 识别
+        result, _ = _rapidocr_engine(img_array)
+        if not result:
+            return []
+        # 提取文字
+        lines = []
+        for item in result:
+            if item:
+                text = item[1] if len(item) > 1 else str(item)
+                if text:
+                    lines.append(text)
+        return lines
+    except Exception as exc:
+        raise RuntimeError(f"RapidOCR 识别失败：{exc}") from exc
+
+
 def _recognize_general_with_aliyun(image_bytes: bytes) -> dict[str, Any]:
     if not (ALIYUN_OCR_AK_ID and ALIYUN_OCR_AK_SECRET):
         raise AliyunOcrNotConfigured("阿里云 OCR 未配置：需要 ALIYUN_AK_ID/ALIYUN_AK_SECRET")
@@ -379,16 +553,24 @@ def _read_comment_region_variants(image_path: Path) -> list[bytes]:
     with Image.open(image_path) as image:
         image = image.convert("RGB")
         width, height = image.size
-        boxes = [
-            (0, int(height * 0.52), int(width * 0.94), int(height * 0.93)),
-            (0, int(height * 0.58), int(width * 0.98), int(height * 0.96)),
-            (0, int(height * 0.45), int(width * 0.90), int(height * 0.90)),
+
+        # 简化：只保留 3 个核心 variant，避免过度处理
+        configs = [
+            # 标准区域
+            {"box": (0, int(height * 0.52), int(width * 0.94), int(height * 0.93)), "sharpen": 1.5, "contrast": 1.0},
+            # 更靠下
+            {"box": (0, int(height * 0.58), int(width * 0.98), int(height * 0.96)), "sharpen": 1.5, "contrast": 1.0},
+            # 更靠上
+            {"box": (0, int(height * 0.45), int(width * 0.90), int(height * 0.90)), "sharpen": 1.5, "contrast": 1.0},
         ]
+
         variants: list[bytes] = []
-        for crop_box in boxes:
-            crop = image.crop(crop_box)
+        for config in configs:
+            crop = image.crop(config["box"])
             crop = ImageOps.autocontrast(crop)
-            crop = ImageEnhance.Sharpness(crop).enhance(1.7)
+            crop = ImageEnhance.Sharpness(crop).enhance(config["sharpen"])
+            crop = ImageEnhance.Contrast(crop).enhance(config["contrast"])
+
             if crop.width < 900:
                 crop = crop.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS)
 
@@ -398,41 +580,136 @@ def _read_comment_region_variants(image_path: Path) -> list[bytes]:
         return variants
 
 
-def _parse_comment_line(raw_line: str) -> tuple[str, str, str] | None:
+def _parse_comment_line(raw_line: str) -> tuple[str, str, str, list[str]] | None:
     line = _clean_line(raw_line)
     if not line or len(line) < 3:
         return None
 
     if "关注了主播" in line:
-        nickname = _clean_nickname(line.split("关注了主播", 1)[0])
+        nickname, customer_tags = _extract_nickname_tags(line.split("关注了主播", 1)[0])
         if not nickname:
             return None
-        return nickname, "关注了主播", "关注"
+        return nickname, "关注了主播", "关注", customer_tags
 
     has_comment_marker = "：" in line or ":" in line
     is_badged_line = bool(_BADGED_LINE_PATTERN.match(line))
     is_masked_line = bool(_MASKED_NICKNAME_PATTERN.match(line))
     if not has_comment_marker and not is_badged_line and not is_masked_line:
         if _looks_like_content_only_comment(line):
-            return "", _clean_content(line), "弹幕"
+            return "", _clean_content(line), "弹幕", []
         return None
     if _is_noise_line(line):
         return None
 
     match = _COMMENT_SPLIT_PATTERN.match(line)
     if match:
-        nickname = _clean_nickname(match.group(1))
+        nickname, customer_tags = _extract_nickname_tags(match.group(1))
         content = _clean_content(match.group(2))
     else:
-        match = _BADGED_LINE_PATTERN.match(line) or _MASKED_NICKNAME_PATTERN.match(line)
-        if not match:
-            return None
-        nickname = _clean_nickname(match.group(1))
-        content = _clean_content(match.group(2))
+        badged_match = _BADGED_LINE_PATTERN.match(line)
+        if badged_match:
+            nickname, customer_tags = _extract_nickname_tags(f"{badged_match.group(1)}{badged_match.group(2)}")
+            content = _clean_content(badged_match.group(3))
+        else:
+            compact_badged_match = _COMPACT_LIGHT_BADGED_LINE_PATTERN.match(line)
+            if compact_badged_match:
+                nickname, customer_tags = _extract_nickname_tags(f"{compact_badged_match.group(1)}{compact_badged_match.group(3)}")
+                content = _clean_content(compact_badged_match.group(4))
+            else:
+                match = _MASKED_NICKNAME_PATTERN.match(line)
+                if not match:
+                    return None
+                nickname, customer_tags = _extract_nickname_tags(match.group(1))
+                content = _clean_content(match.group(2))
 
     if not nickname or not _is_valid_comment_content(content):
         return None
-    return nickname, content, "弹幕"
+    return nickname, content, "弹幕", customer_tags
+
+
+def _extract_nickname_tags(value: str) -> tuple[str, list[str]]:
+    nickname = _clean_line(value)
+    customer_tags: list[str] = []
+
+    while nickname:
+        before = nickname
+
+        contribution_match = _CONTRIBUTION_PREFIX_PATTERN.match(nickname)
+        if contribution_match:
+            nickname = nickname[contribution_match.end() :].strip()
+            continue
+
+        badge_label = next((label for label in _BADGE_LABELS if nickname.startswith(label)), "")
+        if badge_label:
+            _append_customer_tag(customer_tags, _format_customer_tag(badge_label))
+            nickname = nickname[len(badge_label) :].strip()
+            continue
+
+        light_badge_match = _CUSTOM_LIGHT_BADGE_PATTERN.match(nickname)
+        if light_badge_match:
+            compact_match = _CUSTOM_LIGHT_BADGE_WITH_NICKNAME_PATTERN.match(nickname)
+            if compact_match:
+                _append_customer_tag(customer_tags, "粉丝")
+                _append_customer_tag(customer_tags, _format_light_badge_tag(compact_match.group(1)))
+                nickname = compact_match.group(2).strip()
+                continue
+            _append_customer_tag(customer_tags, "粉丝")
+            _append_customer_tag(customer_tags, _format_light_badge_tag(light_badge_match.group(1)))
+            nickname = nickname[light_badge_match.end() :].strip()
+            continue
+
+        if before == nickname:
+            break
+
+    return _clean_nickname(nickname), _normalize_customer_tags(customer_tags)
+
+
+def _append_customer_tag(customer_tags: list[str], tag: str) -> None:
+    if tag and tag not in customer_tags:
+        customer_tags.append(tag)
+
+
+def _format_customer_tag(label: str) -> str:
+    if label == "资深买家":
+        return "资深买家（老客户）"
+    if label in {"【主播】", "[主播]"}:
+        return "主播"
+    return label
+
+
+def _format_light_badge_tag(label: str) -> str:
+    return f"{_canonical_light_badge_label(label)}（灯牌）"
+
+
+def _canonical_light_badge_label(label: str) -> str:
+    cleaned = _clean_line(label)
+    if cleaned in _LIGHT_BADGE_CANONICAL_BY_LABEL:
+        return _LIGHT_BADGE_CANONICAL_BY_LABEL[cleaned]
+    if _VIDEO_ACCOUNT_LIGHT_BADGE_OCR_ALIAS_PATTERN.match(cleaned):
+        return _LIGHT_BADGE_CANONICAL_BY_LABEL.get("几级富婆") or _LIGHT_BADGE_CANONICAL_BY_LABEL.get("⭐富婆") or "⭐富婆"
+
+    level_match = re.match(rf"^{_LIGHT_BADGE_OCR_LEVEL_TEXT}(.+)$", cleaned)
+    if level_match:
+        without_level = level_match.group(1).strip()
+        if without_level in _LIGHT_BADGE_CANONICAL_BY_LABEL:
+            return _LIGHT_BADGE_CANONICAL_BY_LABEL[without_level]
+    return cleaned
+
+
+def _normalize_customer_tags(customer_tags: list[str]) -> list[str]:
+    if any(tag.endswith("（灯牌）") for tag in customer_tags) and not any(tag in _FAN_TAGS for tag in customer_tags):
+        customer_tags.insert(0, "粉丝")
+
+    def tag_rank(tag: str) -> int:
+        if tag in _FAN_TAGS:
+            return 0
+        if tag.endswith("（灯牌）") or tag == "灯牌":
+            return 1
+        if tag == "资深买家（老客户）":
+            return 2
+        return 3
+
+    return sorted(customer_tags, key=tag_rank)
 
 
 def _clean_line(value: str) -> str:
@@ -447,8 +724,18 @@ def _clean_line(value: str) -> str:
 
 
 def _clean_nickname(value: str) -> str:
-    nickname = _BADGE_PATTERN.sub("", _clean_line(value))
+    nickname = _clean_line(value)
+    while True:
+        stripped = _BADGE_PATTERN.sub(
+            "",
+            _CONTRIBUTION_PREFIX_PATTERN.sub("", _CUSTOM_BADGE_PREFIX_PATTERN.sub("", nickname)),
+        ).strip()
+        if stripped == nickname:
+            break
+        nickname = stripped
     nickname = re.sub(r"^[^\w\u4e00-\u9fff*]+", "", nickname)
+    nickname = _NOISY_MASKED_NICKNAME_PREFIX_PATTERN.sub("", nickname)
+    nickname = _NOISY_LATIN_MASKED_NICKNAME_PREFIX_PATTERN.sub("", nickname)
     nickname = re.sub(r"[^\w\u4e00-\u9fff*.-]+$", "", nickname)
     nickname = re.sub(r"\s*\*\s*", "*", nickname)
     nickname = re.sub(r"^[0-9Oo零一二三四五六七八九十\s·._-]+(?=[A-Za-z\u4e00-\u9fff])", "", nickname)
@@ -457,6 +744,26 @@ def _clean_nickname(value: str) -> str:
         nickname = nickname[:16]
     if nickname == "未知观众":
         return ""
+    # OCR 错误纠正：修复常见的 OCR 识别错误
+    nickname = _correct_ocr_nickname_errors(nickname)
+    return nickname
+
+def _correct_ocr_nickname_errors(nickname: str) -> str:
+    """纠正 OCR 识别出的昵称错误。"""
+    if not nickname:
+        return nickname
+    # 处理 "阳坳肖**" → "肖**" 的情况（OCR 把空格识别成"坳"）
+    # 模式：两个中文字 + "坳" + 昵称 → 保留后面的昵称
+    nickname = re.sub(r"^[一-鿿]{2}坳(?=[一-鿿]\*+)", "", nickname)
+    # 常见 OCR 错误映射
+    corrections = {
+        "粉坳": "粉丝",
+        "粉絲": "粉丝",
+        "粉咝": "粉丝",
+    }
+    for wrong, correct in corrections.items():
+        if wrong in nickname:
+            nickname = nickname.replace(wrong, correct)
     return nickname
 
 
@@ -669,6 +976,17 @@ def _refine_existing_live_comment(
     return existing if changed else None
 
 
+def cleanup_session_ocr_cache(session_id: str) -> None:
+    """清理会话的 OCR 缓存，会话结束时调用。"""
+    _frame_ocr_cache.pop(session_id, None)
+    _session_ocr_locks.pop(session_id, None)
+    _session_last_ocr_at.pop(session_id, None)
+    _seen_comment_signatures.pop(session_id, None)
+    _seen_comment_order.pop(session_id, None)
+    _seen_comment_texts.pop(session_id, None)
+    _pending_comment_events.pop(session_id, None)
+
+
 def _semantic_keys_are_similar(left: str, right: str) -> bool:
     left_type, left_text = left.split("|", 1)
     right_type, right_text = right.split("|", 1)
@@ -703,6 +1021,112 @@ def _lock_for_session(session_id: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _session_ocr_locks[session_id] = lock
     return lock
+
+
+def _merge_with_frame_cache(session_id: str, lines: list[str]) -> list[str]:
+    """将当前帧的 OCR 结果与历史帧结果合并，取最优版本。"""
+    cache = _frame_ocr_cache.setdefault(session_id, [])
+
+    # 将当前帧结果加入缓存
+    cache.append((time.monotonic(), lines[:]))
+    if len(cache) > MAX_FRAME_CACHE_SIZE:
+        cache.pop(0)
+
+    # 合并所有帧的结果，权重一致
+    all_lines: list[str] = []
+    for _, frame_lines in cache:
+        all_lines.extend(frame_lines)
+
+    # 去重并取最优版本
+    return _dedupe_lines_across_frames(all_lines)
+
+
+def _dedupe_lines_across_frames(lines: list[str]) -> list[str]:
+    """对跨帧的 OCR 行去重，相似行取综合最优版本。"""
+    if not lines:
+        return []
+
+    cleaned_lines = [_clean_line(line) for line in lines if _clean_line(line)]
+    if not cleaned_lines:
+        return []
+
+    # 分组相似行
+    groups: list[list[str]] = []
+    used: set[int] = set()
+
+    for i, line in enumerate(cleaned_lines):
+        if i in used:
+            continue
+        group = [line]
+        used.add(i)
+        for j, other in enumerate(cleaned_lines):
+            if j in used:
+                continue
+            if _lines_are_similar(line, other):
+                group.append(other)
+                used.add(j)
+        groups.append(group)
+
+    # 每组取最优版本
+    result: list[str] = []
+    for group in groups:
+        best = _select_best_line(group)
+        if best and best not in result:
+            result.append(best)
+
+    return result
+
+
+def _select_best_line(group: list[str]) -> str | None:
+    """从一组相似行中选择最优版本。
+
+    评分维度（权重一致，只看内容质量）：
+    1. 文本完整度（长度）
+    2. 包含有效中文字符的比例
+    3. OCR 质量评分（结构完整性）
+    """
+    if not group:
+        return None
+
+    def score_line(text: str) -> float:
+        if not text:
+            return 0.0
+
+        # 基础分：长度
+        length_score = min(len(text) / 20.0, 1.0)  # 20字封顶
+
+        # 中文比例
+        chinese_chars = len(re.findall(r'[一-鿿]', text))
+        chinese_ratio = chinese_chars / max(len(text), 1)
+        chinese_score = min(chinese_ratio * 2, 1.0)  # 中文越多越好
+
+        # OCR 结构质量：是否包含有效的弹幕分隔符
+        structure_score = 0.0
+        if re.search(r'[：:]', text):  # 有昵称:内容 分隔
+            structure_score = 1.0
+        elif re.search(r'[*]{1,3}', text):  # 有掩码昵称
+            structure_score = 0.8
+        elif len(text) >= 5 and chinese_chars >= 3:  # 纯内容，但长度足够
+            structure_score = 0.6
+
+        # 综合评分
+        return length_score * 0.3 + chinese_score * 0.3 + structure_score * 0.4
+
+    return max(group, key=score_line)
+
+
+def _lines_are_similar(a: str, b: str) -> bool:
+    """判断两行 OCR 文本是否相似（同一弹幕的不同帧识别结果）。"""
+    if a == b:
+        return True
+    # 使用语义文本比较
+    sa = _semantic_comment_text(a)
+    sb = _semantic_comment_text(b)
+    if not sa or not sb:
+        return False
+    if sa in sb or sb in sa:
+        return True
+    return SequenceMatcher(a=sa, b=sb).ratio() >= 0.75
 
 
 def _should_scan_now(session_id: str) -> bool:
