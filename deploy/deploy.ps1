@@ -29,12 +29,14 @@ New-Item -ItemType Directory -Path $Temp | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Temp "frontend-dist") | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Temp "backend") | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Temp "data") | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $Temp "models") | Out-Null
 
 Copy-Item -Path (Join-Path $Root "backend\app") -Destination (Join-Path $Temp "backend\app") -Recurse
 Copy-Item -Path (Join-Path $Root "backend\requirements.txt") -Destination (Join-Path $Temp "backend\requirements.txt")
 Copy-Item -Path (Join-Path $Root "data\samples") -Destination (Join-Path $Temp "data\samples") -Recurse
 Copy-Item -Path (Join-Path $Root "frontend\dist\*") -Destination (Join-Path $Temp "frontend-dist") -Recurse
 Copy-Item -Path (Join-Path $Root "deploy") -Destination (Join-Path $Temp "deploy") -Recurse
+Copy-Item -Path (Join-Path $Root "models\jade-yolo.pt") -Destination (Join-Path $Temp "models\jade-yolo.pt")
 
 if (Test-Path $Package) {
   Remove-Item -LiteralPath $Package -Force

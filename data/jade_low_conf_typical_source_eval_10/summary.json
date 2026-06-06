@@ -1,0 +1,159 @@
+{
+  "output_dir": "D:\\JLAO\\data\\jade_low_conf_typical_source_eval_10",
+  "images": 10,
+  "source_numbers": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    8,
+    9,
+    10,
+    12
+  ],
+  "dataset_yaml": "D:\\JLAO\\data\\jade_low_conf_typical_source_eval_10\\dataset.yaml",
+  "rows": [
+    {
+      "source_sample": 1,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-972e98832d2d.jpg",
+      "image": "images/test/source_01_phone-972e98832d2d.jpg",
+      "label": "labels/test/source_01_phone-972e98832d2d.txt",
+      "box": [
+        31.39,
+        154.67,
+        390.87,
+        658.98
+      ],
+      "source_kind": "low-conf",
+      "source_confidence": 0.196
+    },
+    {
+      "source_sample": 2,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-28d0bb2d6c1a.jpg",
+      "image": "images/test/source_02_phone-28d0bb2d6c1a.jpg",
+      "label": "labels/test/source_02_phone-28d0bb2d6c1a.txt",
+      "box": [
+        37.2,
+        374.48,
+        461.0,
+        791.98
+      ],
+      "source_kind": "merged-low-conf",
+      "source_confidence": 0.225
+    },
+    {
+      "source_sample": 3,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-28d0bb2d6c1a.jpg",
+      "image": "images/test/source_03_phone-28d0bb2d6c1a.jpg",
+      "label": "labels/test/source_03_phone-28d0bb2d6c1a.txt",
+      "box": [
+        37.2,
+        374.48,
+        461.0,
+        791.98
+      ],
+      "source_kind": "merged-low-conf",
+      "source_confidence": 0.206
+    },
+    {
+      "source_sample": 4,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-9d2da21d1878.jpg",
+      "image": "images/test/source_04_phone-9d2da21d1878.jpg",
+      "label": "labels/test/source_04_phone-9d2da21d1878.txt",
+      "box": [
+        157.1,
+        246.47,
+        342.79,
+        747.58
+      ],
+      "source_kind": "low-conf",
+      "source_confidence": 0.245
+    },
+    {
+      "source_sample": 5,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-10e2bd10cbf4.jpg",
+      "image": "images/test/source_05_phone-10e2bd10cbf4.jpg",
+      "label": "labels/test/source_05_phone-10e2bd10cbf4.txt",
+      "box": [
+        0.0,
+        215.8,
+        356.21,
+        658.36
+      ],
+      "source_kind": "low-conf",
+      "source_confidence": 0.268
+    },
+    {
+      "source_sample": 7,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-5837325d545c\\phone-380e7dc2a83f.jpg",
+      "image": "images/test/source_07_phone-380e7dc2a83f.jpg",
+      "label": "labels/test/source_07_phone-380e7dc2a83f.txt",
+      "box": [
+        39.91,
+        173.6,
+        414.64,
+        581.83
+      ],
+      "source_kind": "low-conf",
+      "source_confidence": 0.251
+    },
+    {
+      "source_sample": 8,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-9c21a186c141\\phone-af2a272830d2.jpg",
+      "image": "images/test/source_08_phone-af2a272830d2.jpg",
+      "label": "labels/test/source_08_phone-af2a272830d2.txt",
+      "box": [
+        0.0,
+        67.69,
+        434.75,
+        653.6
+      ],
+      "source_kind": "low-conf",
+      "source_confidence": 0.21
+    },
+    {
+      "source_sample": 9,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-e3f8af7281b7.jpg",
+      "image": "images/test/source_09_phone-e3f8af7281b7.jpg",
+      "label": "labels/test/source_09_phone-e3f8af7281b7.txt",
+      "box": [
+        242.0,
+        224.0,
+        461.0,
+        710.0
+      ],
+      "source_kind": "manual-no-detection",
+      "source_confidence": 0.0
+    },
+    {
+      "source_sample": 10,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-f59dd648fa03.jpg",
+      "image": "images/test/source_10_phone-f59dd648fa03.jpg",
+      "label": "labels/test/source_10_phone-f59dd648fa03.txt",
+      "box": [
+        72.0,
+        142.0,
+        370.0,
+        620.0
+      ],
+      "source_kind": "manual-no-detection",
+      "source_confidence": 0.0
+    },
+    {
+      "source_sample": 12,
+      "source_image": "D:\\JLAO\\uploads\\frames\\live-1b7df07d370d\\phone-4a3318802e34.jpg",
+      "image": "images/test/source_12_phone-4a3318802e34.jpg",
+      "label": "labels/test/source_12_phone-4a3318802e34.txt",
+      "box": [
+        86.0,
+        40.0,
+        405.0,
+        828.0
+      ],
+      "source_kind": "manual-no-detection",
+      "source_confidence": 0.0
+    }
+  ]
+}

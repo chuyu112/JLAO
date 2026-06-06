@@ -1,19 +1,19 @@
-<template>
+﻿<template>
   <section class="panel">
     <header class="panel-header">
       <div>
         <div class="panel-title">实时转写</div>
-        <div class="transcript-meta">主播语言与真实弹幕</div>
+        <div class="transcript-meta">主播语音与直播弹幕</div>
       </div>
       <div class="transcript-counts">
         <n-tag size="small">{{ transcripts.length }} 条主播</n-tag>
-        <n-tag size="small" type="info">{{ commentEvents.length }} 条真实弹幕</n-tag>
+        <n-tag size="small" type="info">{{ commentEvents.length }} 条弹幕</n-tag>
       </div>
     </header>
 
     <div class="panel-body transcript-split-grid">
       <div class="transcript-column">
-        <div class="transcript-column-title">主播语言</div>
+        <div class="transcript-column-title">主播语音</div>
         <div v-if="partialTranscript" class="transcript-partial">
           正在识别：{{ partialTranscript }}
         </div>
@@ -32,18 +32,22 @@
       </div>
 
       <div class="transcript-column comment-column">
-        <div class="transcript-column-title">真实弹幕累积</div>
+        <div class="transcript-column-title">直播弹幕</div>
         <div v-if="commentEvents.length === 0" class="empty-state compact">
-          暂无真实弹幕，虚拟客户不会显示在这里。
+          暂无直播弹幕。
         </div>
         <div v-else class="comment-list">
           <article v-for="item in orderedComments" :key="item.id" class="comment-item" :class="{ alert: item.priority >= 3 }">
             <div class="comment-line">
-              <span>{{ item.customer_nickname }}</span>
+              <span v-if="item.customer_level || item.customer_nickname || item.is_updated">
+                {{ item.customer_level }}{{ item.customer_nickname }}
+                <em v-if="item.is_updated" class="update-badge">更新</em>
+              </span>
+              <span v-else></span>
               <small>{{ formatTime(item.created_at) }}</small>
             </div>
             <p>{{ item.content }}</p>
-            <div class="transcript-meta">{{ item.event_type }} · {{ item.customer_level }}</div>
+            <div class="transcript-meta">{{ item.event_type }}</div>
           </article>
         </div>
       </div>
@@ -137,6 +141,19 @@ function formatTime(value: string) {
   font-size: 13px;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.comment-line em {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #ff8f8f;
+  font-size: 11px;
+  font-style: normal;
+  border: 1px solid rgba(255, 92, 92, 0.9);
+  background: rgba(255, 92, 92, 0.12);
 }
 
 .comment-line small {

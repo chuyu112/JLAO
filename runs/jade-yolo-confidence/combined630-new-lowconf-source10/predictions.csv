@@ -1,0 +1,11 @@
+image,prediction_count,top_conf,top_cls,top_iou,best_iou,best_iou_conf,hit_iou50
+data/jade_low_conf_typical_source_eval_10/images/test/source_01_phone-972e98832d2d.jpg,1,0.957628,0,0.97027,0.97027,0.957628,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_02_phone-28d0bb2d6c1a.jpg,3,0.957612,0,0.966268,0.966268,0.957612,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_03_phone-28d0bb2d6c1a.jpg,3,0.957612,0,0.966268,0.966268,0.957612,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_04_phone-9d2da21d1878.jpg,1,0.947343,0,0.964908,0.964908,0.947343,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_05_phone-10e2bd10cbf4.jpg,2,0.967293,0,0.934339,0.934339,0.967293,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_07_phone-380e7dc2a83f.jpg,1,0.961257,0,0.928587,0.928587,0.961257,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_08_phone-af2a272830d2.jpg,1,0.944776,0,0.936455,0.936455,0.944776,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_09_phone-e3f8af7281b7.jpg,1,0.944556,0,0.96038,0.96038,0.944556,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_10_phone-f59dd648fa03.jpg,1,0.949209,0,0.941115,0.941115,0.949209,True
+data/jade_low_conf_typical_source_eval_10/images/test/source_12_phone-4a3318802e34.jpg,2,0.943631,0,0.927591,0.927591,0.943631,True

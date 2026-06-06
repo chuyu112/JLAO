@@ -6,11 +6,13 @@ from app.repositories import (
     list_virtual_customer_events,
     list_virtual_customers,
     save_agent_utterance,
+    save_capture_archive,
     save_suggestion,
     save_transcript,
     save_virtual_customer_event,
 )
-from app.schemas import TranscriptSegment
+from app.schemas import CaptureArchiveItem, TranscriptSegment
+from app.services.jade_multimodal_service import analyze_jade_text, upsert_live_jade_product
 from app.services.agent_service import generate_suggestions
 from app.services.context_service import extract_keywords
 from app.services.multi_agent_service import generate_agent_utterances
@@ -43,21 +45,39 @@ async def append_transcript(session_id: str, text: str) -> TranscriptSegment:
     )
     segments.append(segment)
     save_transcript(segment)
+    save_capture_archive(
+        CaptureArchiveItem(
+            id=f"arch-{segment.id}",
+            session_id=session_id,
+            artifact_type="text",
+            source="transcript",
+            content=segment.text,
+            metadata={"index": segment.index, "keywords": segment.keywords},
+            created_at=segment.created_at,
+        )
+    )
     await manager.broadcast(session_id, "transcript_segment", segment.model_dump(mode="json"))
 
+    jade_analysis = analyze_jade_text(cleaned)
+    await upsert_live_jade_product(session_id, jade_analysis)
     text_scores = match_products_by_text(cleaned)
     water, subject, extra = extract_dimensions_from_text(cleaned)
+    water = jade_analysis.water or water
+    subject = jade_analysis.style or jade_analysis.theme or subject
+    extra = jade_analysis.theme if jade_analysis.style else (jade_analysis.style or extra)
     if text_scores:
         await apply_recognition(
             session_id,
             text_scores=text_scores,
+            detected_color=jade_analysis.color,
             detected_water=water,
             detected_subject=subject,
             detected_extra=extra,
         )
-    elif water or subject or extra:
+    elif jade_analysis.color or water or subject or extra:
         await apply_recognition(
             session_id,
+            detected_color=jade_analysis.color,
             detected_water=water,
             detected_subject=subject,
             detected_extra=extra,

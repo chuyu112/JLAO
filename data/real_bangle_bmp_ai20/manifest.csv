@@ -1,0 +1,21 @@
+image,label,bbox_xyxy,bbox_yolo,angle,scale,tx,ty,color
+images/train/real_bangle_bmp_ai20_001.jpg,labels/train/real_bangle_bmp_ai20_001.txt,"85.0,301.0,344.0,567.0",0 0.476667 0.447423 0.575556 0.274227,5.333,0.683,72.000,288.000,imperial_green
+images/train/real_bangle_bmp_ai20_002.jpg,labels/train/real_bangle_bmp_ai20_002.txt,"33.0,281.0,403.0,661.0",0 0.484444 0.485567 0.822222 0.391753,-11.237,0.976,-3.000,246.000,ink_green
+images/train/real_bangle_bmp_ai20_003.jpg,labels/train/real_bangle_bmp_ai20_003.txt,"51.0,305.0,412.0,673.0",0 0.514444 0.504124 0.802222 0.379381,11.549,0.948,16.000,270.000,lavender
+images/train/real_bangle_bmp_ai20_004.jpg,labels/train/real_bangle_bmp_ai20_004.txt,"75.0,305.0,366.0,604.0",0 0.490000 0.468557 0.646667 0.308247,-0.769,0.767,71.000,302.000,icy_green
+images/train/real_bangle_bmp_ai20_005.jpg,labels/train/real_bangle_bmp_ai20_005.txt,"113.0,275.0,354.0,522.0",0 0.518889 0.410825 0.535556 0.254639,-11.416,0.636,89.000,252.000,lavender
+images/train/real_bangle_bmp_ai20_006.jpg,labels/train/real_bangle_bmp_ai20_006.txt,"30.0,274.0,391.0,642.0",0 0.467778 0.472165 0.802222 0.379381,12.458,0.948,-7.000,237.000,yellow_green
+images/train/real_bangle_bmp_ai20_007.jpg,labels/train/real_bangle_bmp_ai20_007.txt,"55.0,335.0,380.0,668.0",0 0.483333 0.517010 0.722222 0.343299,6.424,0.853,36.000,316.000,yellow_green
+images/train/real_bangle_bmp_ai20_008.jpg,labels/train/real_bangle_bmp_ai20_008.txt,"36.0,316.0,397.0,687.0",0 0.481111 0.517010 0.802222 0.382474,5.993,0.953,15.000,296.000,yellow_green
+images/train/real_bangle_bmp_ai20_009.jpg,labels/train/real_bangle_bmp_ai20_009.txt,"40.0,277.0,339.0,583.0",0 0.421111 0.443299 0.664444 0.315464,7.282,0.785,20.000,258.000,yellow_green
+images/train/real_bangle_bmp_ai20_010.jpg,labels/train/real_bangle_bmp_ai20_010.txt,"15.0,245.0,353.0,592.0",0 0.408889 0.431443 0.751111 0.357732,-1.127,0.893,9.000,239.000,ink_green
+images/train/real_bangle_bmp_ai20_011.jpg,labels/train/real_bangle_bmp_ai20_011.txt,"53.0,259.0,431.0,647.0",0 0.537778 0.467010 0.840000 0.400000,-4.025,0.997,37.000,244.000,blue_water
+images/train/real_bangle_bmp_ai20_012.jpg,labels/train/real_bangle_bmp_ai20_012.txt,"143.0,249.0,421.0,533.0",0 0.626667 0.403093 0.617778 0.292784,-10.146,0.733,118.000,224.000,blue_water
+images/train/real_bangle_bmp_ai20_013.jpg,labels/train/real_bangle_bmp_ai20_013.txt,"55.0,274.0,343.0,568.0",0 0.442222 0.434021 0.640000 0.303093,-14.396,0.757,21.000,240.000,yellow_green
+images/train/real_bangle_bmp_ai20_014.jpg,labels/train/real_bangle_bmp_ai20_014.txt,"39.0,266.0,413.0,650.0",0 0.502222 0.472165 0.831111 0.395876,10.030,1.021,6.000,234.000,yellow_green
+images/train/real_bangle_bmp_ai20_015.jpg,labels/train/real_bangle_bmp_ai20_015.txt,"36.0,288.0,354.0,612.0",0 0.433333 0.463918 0.706667 0.334021,14.456,0.835,-1.000,251.000,yellow_green
+images/train/real_bangle_bmp_ai20_016.jpg,labels/train/real_bangle_bmp_ai20_016.txt,"32.0,312.0,402.0,692.0",0 0.482222 0.517526 0.822222 0.391753,0.801,0.976,27.000,307.000,ink_green
+images/train/real_bangle_bmp_ai20_017.jpg,labels/train/real_bangle_bmp_ai20_017.txt,"58.0,282.0,407.0,638.0",0 0.516667 0.474227 0.775556 0.367010,14.819,1.050,16.000,241.000,yellow_green
+images/train/real_bangle_bmp_ai20_018.jpg,labels/train/real_bangle_bmp_ai20_018.txt,"92.0,319.0,326.0,559.0",0 0.464444 0.452577 0.520000 0.247423,1.443,0.615,88.000,315.000,blue_water
+images/train/real_bangle_bmp_ai20_019.jpg,labels/train/real_bangle_bmp_ai20_019.txt,"49.0,306.0,329.0,593.0",0 0.420000 0.463402 0.622222 0.295876,0.240,0.738,47.000,304.000,lavender
+images/train/real_bangle_bmp_ai20_020.jpg,labels/train/real_bangle_bmp_ai20_020.txt,"169.0,417.0,433.0,688.0",0 0.668889 0.569588 0.586667 0.279381,1.844,0.696,163.000,411.000,lavender

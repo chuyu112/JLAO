@@ -1,0 +1,14 @@
+{
+  "output_dir": "D:\\JLAO\\data\\generated_jade_bangle_gpt_image_100",
+  "requested": 100,
+  "ok": 100,
+  "generated": 1,
+  "skipped": 99,
+  "errors": 0,
+  "size": "1008x1792",
+  "model": "gpt-image-2",
+  "preview": "D:\\JLAO\\data\\generated_jade_bangle_gpt_image_100\\preview_contact_sheet_25.jpg",
+  "actual_image_files": 100,
+  "all_files_verified": true,
+  "verified_size": "1008x1792"
+}

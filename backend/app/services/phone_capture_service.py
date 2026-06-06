@@ -25,10 +25,13 @@ class PhoneCaptureTaskState:
 
 
 capture_tasks: dict[str, PhoneCaptureTaskState] = {}
+WINDOWS_DRIVER_ROOT = "D:\\"
 
 if sys.platform == "win32":
     _ADB_CANDIDATES = [
         r"D:\JLAO\QtScrcpy-dev\output\x64\Release\adb.exe",
+        r"D:\scrcpy-win64-v4.0\adb.exe",
+        r"D:\QtScrcpy-win-x64-v3.3.3\adb.exe",
         r"D:\scrcpy-win64-v3.3.4\adb.exe",
         r"C:\Program Files\scrcpy\adb.exe",
         r"C:\ProgramData\chocolatey\bin\adb.exe",
@@ -43,7 +46,8 @@ else:
 
 
 def _get_adb_exe() -> str:
-    for candidate in _ADB_CANDIDATES:
+    root_candidates = _scan_drive_root_adb_candidates(WINDOWS_DRIVER_ROOT) if sys.platform == "win32" else []
+    for candidate in [*root_candidates, *_ADB_CANDIDATES]:
         if os.path.exists(candidate):
             return candidate
 
@@ -52,6 +56,33 @@ def _get_adb_exe() -> str:
         return path
 
     raise FileNotFoundError("未找到 adb，请确认 scrcpy/platform-tools 已安装。")
+
+
+def _scan_drive_root_adb_candidates(root: str = WINDOWS_DRIVER_ROOT) -> list[str]:
+    if not os.path.isdir(root):
+        return []
+
+    candidates: list[str] = []
+
+    def add_if_file(path: str) -> None:
+        if os.path.isfile(path):
+            candidates.append(path)
+
+    add_if_file(os.path.join(root, "adb.exe"))
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return candidates
+
+    for entry in entries:
+        try:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        add_if_file(os.path.join(entry.path, "adb.exe"))
+
+    return candidates
 
 
 def _build_adb_command(serial: str, *args: str) -> list[str]:
@@ -190,9 +221,9 @@ async def _compress_screenshot(raw_image_path: Path, image_path: Path) -> None:
 
     def convert() -> None:
         with Image.open(raw_image_path) as image:
-            image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+            # 保持原始分辨率，只转换格式
             rgb_image = image.convert("RGB")
-            rgb_image.save(image_path, format="JPEG", quality=72, optimize=True, progressive=True)
+            rgb_image.save(image_path, format="JPEG", quality=85, optimize=True)
 
     await asyncio.to_thread(convert)
 

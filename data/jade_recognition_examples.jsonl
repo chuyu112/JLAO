@@ -1,0 +1,5 @@
+{"id":"text-white-ice-guanyin","source":"text","input":{"text":"这件白冰冰种观音吊坠，高 45mm，宽 18mm。"},"expected":{"color":"白冰","water":"冰种","style":"吊坠","theme":"观音"}}
+{"id":"vlm-markdown-green-pendant","source":"vlm","input":{"raw_text":"```json\n{\"attributes\":{\"颜色\":{\"value\":\"正阳绿\"},\"种水\":[\"糯冰种\"],\"器型\":{\"label\":\"挂件\"},\"题材\":\"观音\"}}\n```"},"expected":{"color":"阳绿","water":"糯冰","style":"吊坠","theme":"观音"}}
+{"id":"vlm-plain-description-dragon","source":"vlm","input":{"raw_text":"蓝水高冰龙牌，牌型规整，雕工清晰。"},"expected":{"color":"蓝水","water":"高冰","style":"牌子","theme":"龙牌"}}
+{"id":"yolo-english-dragon-plaque","source":"yolo","input":{"label":"jade_dragon_plaque"},"expected":{"style":"牌子","theme":"龙牌"}}
+{"id":"fusion-text-image-dragon-plaque","source":"fusion","input":{"text_attributes":{"color":"白冰","water":"冰种"},"image_attributes":{"style":"牌子","theme":"龙牌","label":"jade_dragon_plaque"}},"expected":{"color":"白冰","water":"冰种","style":"牌子","theme":"龙牌"}}

@@ -1,0 +1,6 @@
+path: D:/JLAO/data/jade_bangle_combined_training_430
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: jade_bangle

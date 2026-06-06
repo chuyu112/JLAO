@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+﻿from collections.abc import Iterable
 
 from sqlalchemy import delete, select
 
@@ -6,6 +6,7 @@ from app.db import session_scope
 from app.db_models import (
     AgentProfileRecord,
     AgentUtteranceRecord,
+    CaptureArchiveRecord,
     CustomerMemoryRecord,
     FrameSnapshotRecord,
     LiveSessionRecord,
@@ -20,6 +21,7 @@ from app.db_models import (
 from app.schemas import (
     AgentProfile,
     AgentUtterance,
+    CaptureArchiveItem,
     CustomerMemory,
     FrameSnapshot,
     LiveSession,
@@ -44,9 +46,12 @@ def _product_from_record(record: ProductRecord) -> Product:
         id=record.id,
         name=record.name,
         category=record.category,
+        status=record.status or "在售",
         material=record.material or "",
         color=record.color or "",
         water=record.water or "",
+        style=getattr(record, "style", "") or "",
+        theme=getattr(record, "theme", "") or "",
         size=record.size or "",
         weight=record.weight or "",
         certificate=record.certificate or "",
@@ -56,6 +61,11 @@ def _product_from_record(record: ProductRecord) -> Product:
         selling_points=record.selling_points or [],
         faq=record.faq or [],
         recommended_scripts=record.recommended_scripts or [],
+        evidence_image_paths=getattr(record, "evidence_image_paths", None) or [],
+        evidence_texts=getattr(record, "evidence_texts", None) or [],
+        analysis_confidence=getattr(record, "analysis_confidence", 0.0) or 0.0,
+        attribute_sources=getattr(record, "attribute_sources", None) or {},
+        fusion_scores=getattr(record, "fusion_scores", None) or {},
     )
 
 
@@ -98,6 +108,7 @@ def _session_from_record(record: LiveSessionRecord) -> LiveSession:
     return LiveSession(
         id=record.id,
         title=record.title,
+        live_room_name=record.live_room_name or "",
         platform=record.platform,
         anchor_name=record.anchor_name,
         operator_name=record.operator_name,
@@ -217,13 +228,30 @@ def _frame_from_record(record: FrameSnapshotRecord) -> FrameSnapshot:
         recognized_product_name=record.recognized_product_name,
         recognition_confidence=record.recognition_confidence,
         recognition_source=record.recognition_source,
+        jade_color=getattr(record, "jade_color", "") or "",
+        jade_water=getattr(record, "jade_water", "") or "",
+        jade_style=getattr(record, "jade_style", "") or "",
+        jade_theme=getattr(record, "jade_theme", "") or "",
+        jade_size=getattr(record, "jade_size", "") or "",
+        jade_price=getattr(record, "jade_price", None),
+        jade_confidence=getattr(record, "jade_confidence", 0.0) or 0.0,
+        jade_attribute_sources=getattr(record, "jade_attribute_sources", None) or {},
+        jade_color_analysis=getattr(record, "jade_color_analysis", None) or {},
+        jade_detections=getattr(record, "jade_detections", None) or [],
+        jade_ocr_text=getattr(record, "jade_ocr_text", "") or "",
+        jade_ocr_lines=getattr(record, "jade_ocr_lines", None) or [],
+        jade_ocr_error=getattr(record, "jade_ocr_error", "") or "",
         created_at=record.created_at,
     )
 
 
 def save_frame_snapshot(snapshot: FrameSnapshot) -> None:
     with session_scope() as session:
-        if not session.get(FrameSnapshotRecord, snapshot.id):
+        record = session.get(FrameSnapshotRecord, snapshot.id)
+        if record:
+            for key, value in snapshot.model_dump().items():
+                setattr(record, key, value)
+        else:
             session.add(FrameSnapshotRecord(**snapshot.model_dump()))
 
 
@@ -247,6 +275,48 @@ def trim_frame_snapshots(session_id: str, keep: int) -> None:
         ).all()
         for record in records:
             session.delete(record)
+
+
+def _archive_from_record(record: CaptureArchiveRecord) -> CaptureArchiveItem:
+    return CaptureArchiveItem(
+        id=record.id,
+        session_id=record.session_id,
+        artifact_type=record.artifact_type,
+        source=record.source or "",
+        path=record.path or "",
+        content=record.content or "",
+        metadata=record.item_metadata or {},
+        created_at=record.created_at,
+    )
+
+
+def save_capture_archive(item: CaptureArchiveItem) -> None:
+    with session_scope() as session:
+        record = session.get(CaptureArchiveRecord, item.id)
+        payload = item.model_dump()
+        item_metadata = payload.pop("metadata", {})
+        if record:
+            for key, value in payload.items():
+                setattr(record, key, value)
+            record.item_metadata = item_metadata
+        else:
+            session.add(CaptureArchiveRecord(**payload, item_metadata=item_metadata))
+
+
+def list_capture_archives(session_id: str) -> list[CaptureArchiveItem]:
+    with session_scope() as session:
+        records = session.scalars(
+            select(CaptureArchiveRecord)
+            .where(CaptureArchiveRecord.session_id == session_id)
+            .order_by(CaptureArchiveRecord.created_at.desc())
+        ).all()
+        items = [_archive_from_record(record) for record in records]
+        artifact_rank = {"text": 0, "image": 1, "video": 2}
+        return sorted(
+            items,
+            key=lambda item: (item.created_at, -artifact_rank.get(item.artifact_type, 99)),
+            reverse=True,
+        )
 
 
 def save_replay_report(report: ReplayReport) -> None:
@@ -327,8 +397,13 @@ def list_virtual_customers() -> list[VirtualCustomer]:
 
 def save_virtual_customer_event(event: VirtualCustomerEvent) -> None:
     with session_scope() as session:
-        if not session.get(VirtualCustomerEventRecord, event.id):
-            session.add(VirtualCustomerEventRecord(**event.model_dump()))
+        record = session.get(VirtualCustomerEventRecord, event.id)
+        payload = event.model_dump(exclude={"is_updated"})
+        if record:
+            for key, value in payload.items():
+                setattr(record, key, value)
+        else:
+            session.add(VirtualCustomerEventRecord(**payload))
 
 
 def list_virtual_customer_events(session_id: str) -> list[VirtualCustomerEvent]:
@@ -349,7 +424,10 @@ def list_virtual_customer_events(session_id: str) -> list[VirtualCustomerEvent]:
                 content=record.content,
                 trigger_reason=record.trigger_reason,
                 priority=record.priority,
+                repeat_count=record.repeat_count or 1,
+                is_updated=False,
                 created_at=record.created_at,
+                last_seen_at=record.last_seen_at,
             )
             for record in records
         ]

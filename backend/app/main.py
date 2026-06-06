@@ -21,6 +21,7 @@ from app.api.agents import router as agents_router
 from app.api.customers import router as customers_router
 from app.api.frames import router as frames_router
 from app.api.ffmpeg_capture import router as ffmpeg_capture_router
+from app.api.jade_yolo_live import router as jade_yolo_live_router
 from app.api.native_stt import router as native_stt_router
 from app.api.phone_capture import router as phone_capture_router
 from app.api.products import router as products_router
@@ -30,6 +31,7 @@ from app.api.sessions import router as sessions_router
 from app.api.suggestions import router as suggestions_router
 from app.api.wiki import router as wiki_router
 from app.auth_utils import get_current_user
+from app.services.native_stt_service import initialize_native_stt_runtime
 from app.state import app_state
 from app.ws.scrcpy_ws import router as scrcpy_ws_router
 from app.ws.session_ws import router as ws_router
@@ -45,6 +47,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "https://jlao.szkakayiduo.com",
+        "https://*.szkakayiduo.com",
         os.getenv("FRONTEND_URL", "http://47.120.41.143"),
     ],
     allow_credentials=True,
@@ -63,6 +66,7 @@ async def add_private_network_access_header(request: Request, call_next):
 @app.on_event("startup")
 async def startup() -> None:
     app_state.load_seed_data()
+    await initialize_native_stt_runtime()
 
 
 @app.get("/health")
@@ -95,7 +99,8 @@ app.include_router(wiki_router, prefix="/api", tags=["wiki"], dependencies=_auth
 app.include_router(replay_router, prefix="/api", tags=["replay"], dependencies=_auth_dep)
 app.include_router(frames_router, prefix="/api", tags=["frames"], dependencies=_auth_dep)
 app.include_router(ffmpeg_capture_router, prefix="/api", tags=["ffmpeg-capture"], dependencies=_auth_dep)
-app.include_router(scrcpy_router, prefix="/api", tags=["scrcpy"], dependencies=_auth_dep)
+app.include_router(jade_yolo_live_router, prefix="/api", tags=["jade-yolo-live"], dependencies=_auth_dep)
+app.include_router(scrcpy_router, prefix="/api", tags=["scrcpy"])
 app.include_router(phone_capture_router, prefix="/api", tags=["phone-capture"], dependencies=_auth_dep)
 app.include_router(native_stt_router, prefix="/api", tags=["native-stt"], dependencies=_auth_dep)
 app.include_router(ws_router)

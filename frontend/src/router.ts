@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import JadeRecognitionLab from './pages/JadeRecognitionLab.vue'
 import LiveDashboard from './pages/LiveDashboard.vue'
 import LoginPage from './pages/LoginPage.vue'
 import ObservationDashboard from './pages/ObservationDashboard.vue'
@@ -12,6 +13,7 @@ export const router = createRouter({
     { path: '/', redirect: '/live' },
     { path: '/login', component: LoginPage },
     { path: '/live', component: LiveDashboard },
+    { path: '/jade-recognition', component: JadeRecognitionLab },
     { path: '/observe', component: ObservationDashboard },
     { path: '/products', component: ProductLibrary },
     { path: '/replay', component: ReplayReport },

@@ -1,0 +1,30 @@
+{
+  "model": "D:\\JLAO\\models\\jade-yolo-combined-430.pt",
+  "dataset": "D:\\JLAO\\data\\jade_low_conf_typical_source_eval_10",
+  "split": "test",
+  "images": 10,
+  "detected_images": 10,
+  "hit_iou50_images": 10,
+  "hit_iou50_rate": 1.0,
+  "top_conf": {
+    "mean": 0.8966,
+    "median": 0.9168,
+    "min": 0.7404,
+    "max": 0.9476,
+    "p10": 0.8641,
+    "p90": 0.9291
+  },
+  "matched_iou50_conf": {
+    "mean": 0.8966,
+    "median": 0.9168,
+    "min": 0.7404,
+    "max": 0.9476,
+    "p10": 0.8641,
+    "p90": 0.9291
+  },
+  "top_conf_ge_050_rate": 1.0,
+  "top_conf_ge_080_rate": 0.9,
+  "matched_conf_ge_080_rate": 0.9,
+  "csv": "D:\\JLAO\\runs\\jade-yolo-confidence\\combined430-new-lowconf-source10\\predictions.csv",
+  "preview": "D:\\JLAO\\runs\\jade-yolo-confidence\\combined430-new-lowconf-source10\\preview_contact_sheet.jpg"
+}

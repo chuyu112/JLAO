@@ -1,0 +1,5 @@
+path: D:/JLAO/data/generated_jade_bangle_liveroom_100
+train: images/train
+val: images/val
+names:
+  0: jade

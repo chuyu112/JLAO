@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -24,9 +24,12 @@ class Product(BaseModel):
     id: str
     name: str
     category: str
+    status: str = "在售"  # 在售 / 闲置
     material: str = ""
     color: str = ""
     water: str = ""
+    style: str = ""
+    theme: str = ""
     size: str = ""
     weight: str = ""
     certificate: str = ""
@@ -36,14 +39,22 @@ class Product(BaseModel):
     selling_points: list[str] = Field(default_factory=list)
     faq: list[str] = Field(default_factory=list)
     recommended_scripts: list[str] = Field(default_factory=list)
+    evidence_image_paths: list[str] = Field(default_factory=list)
+    evidence_texts: list[str] = Field(default_factory=list)
+    analysis_confidence: float = 0.0
+    attribute_sources: dict[str, Any] = Field(default_factory=dict)
+    fusion_scores: dict[str, float] = Field(default_factory=dict)
 
 
 class ProductCreate(BaseModel):
     name: str
     category: str
+    status: str = "在售"
     material: str = "天然翡翠"
     color: str = ""
     water: str = ""
+    style: str = ""
+    theme: str = ""
     size: str = ""
     weight: str = ""
     certificate: str = ""
@@ -53,11 +64,17 @@ class ProductCreate(BaseModel):
     selling_points: list[str] = Field(default_factory=list)
     faq: list[str] = Field(default_factory=list)
     recommended_scripts: list[str] = Field(default_factory=list)
+    evidence_image_paths: list[str] = Field(default_factory=list)
+    evidence_texts: list[str] = Field(default_factory=list)
+    analysis_confidence: float = 0.0
+    attribute_sources: dict[str, Any] = Field(default_factory=dict)
+    fusion_scores: dict[str, float] = Field(default_factory=dict)
 
 
 class LiveSession(BaseModel):
     id: str
     title: str
+    live_room_name: str = ""
     platform: str = "未设置"
     anchor_name: str = "主播"
     operator_name: str = "场控"
@@ -78,6 +95,7 @@ class LiveSession(BaseModel):
 
 class LiveSessionCreate(BaseModel):
     title: str
+    live_room_name: str = ""
     platform: str = "抖音"
     anchor_name: str = "主播"
     operator_name: str = "场控"
@@ -149,6 +167,19 @@ class FrameSnapshot(BaseModel):
     recognized_product_name: str = ""
     recognition_confidence: float | None = None
     recognition_source: str = ""
+    jade_color: str = ""
+    jade_water: str = ""
+    jade_style: str = ""
+    jade_theme: str = ""
+    jade_size: str = ""
+    jade_price: float | None = None
+    jade_confidence: float = 0.0
+    jade_attribute_sources: dict[str, Any] = Field(default_factory=dict)
+    jade_color_analysis: dict[str, Any] = Field(default_factory=dict)
+    jade_detections: list[dict[str, Any]] = Field(default_factory=list)
+    jade_ocr_text: str = ""
+    jade_ocr_lines: list[str] = Field(default_factory=list)
+    jade_ocr_error: str = ""
     created_at: datetime
 
 
@@ -200,6 +231,20 @@ class VirtualCustomerEvent(BaseModel):
     content: str
     trigger_reason: str
     priority: int = 1
+    repeat_count: int = 1
+    is_updated: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen_at: datetime | None = None
+
+
+class CaptureArchiveItem(BaseModel):
+    id: str
+    session_id: str
+    artifact_type: str
+    source: str
+    path: str = ""
+    content: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

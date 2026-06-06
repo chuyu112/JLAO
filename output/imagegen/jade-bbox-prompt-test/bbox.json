@@ -1,0 +1,12 @@
+{
+  "model": "gpt-image-2",
+  "size": "1008x1792",
+  "quality": "low",
+  "yolo_label": "0 0.52 0.46 0.38 0.22",
+  "bbox_pixels_for_1008x1792": [
+    333,
+    627,
+    716,
+    1021
+  ]
+}

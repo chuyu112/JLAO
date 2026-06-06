@@ -1,0 +1,19 @@
+path: data/jade_yolo
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: jade_bangle
+  1: jade_beads
+  2: jade_cabochon
+  3: jade_pendant
+  4: jade_ring
+  5: jade_plaque
+  6: pingan_kou
+  7: guanyin
+  8: buddha
+  9: ruyi
+  10: leaf
+  11: landscape
+  12: pixiu
+  13: gourd

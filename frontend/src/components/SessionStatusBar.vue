@@ -15,11 +15,23 @@
       <n-tag :type="audioConnected ? 'success' : audioError ? 'error' : 'warning'">
         {{ audioConnected ? '音频已接入' : audioError || '音频未接入' }}
       </n-tag>
-      <n-button type="primary" size="small" :disabled="isRunningStatus(session?.status)" @click="$emit('start')">
+      <n-button
+        type="primary"
+        size="small"
+        :loading="starting"
+        :disabled="startDisabledComputed"
+        @click="$emit('start')"
+      >
         <template #icon><play :size="16" /></template>
-        {{ startButtonLabel }}
+        {{ effectiveStartButtonLabel }}
       </n-button>
-      <n-button size="small" secondary type="error" :disabled="!isRunningStatus(session?.status)" @click="$emit('stop')">
+      <n-button
+        size="small"
+        secondary
+        type="error"
+        :disabled="starting || !captureRunning"
+        @click="$emit('stop')"
+      >
         <template #icon><square :size="16" /></template>
         {{ stopButtonLabel }}
       </n-button>
@@ -39,6 +51,10 @@ const props = defineProps<{
   audioConnected: boolean
   audioError: string
   mode?: 'own' | 'observe'
+  starting?: boolean
+  startDisabled?: boolean
+  captureActive?: boolean
+  sourceActive?: boolean
 }>()
 
 defineEmits<{
@@ -46,25 +62,34 @@ defineEmits<{
   stop: []
 }>()
 
+const isObservation = computed(() => props.mode === 'observe')
+const sourceRunning = computed(() => Boolean(props.sourceActive))
+const videoActive = computed(() => Boolean(props.captureActive))
+const needsVideoSource = computed(() => sourceRunning.value && !videoActive.value)
+const captureRunning = computed(() => sourceRunning.value || videoActive.value)
+const startDisabledComputed = computed(() => Boolean(props.startDisabled) || captureRunning.value)
+
 const statusLabel = computed(() => {
   const status = String(props.session?.status || '')
-  if (isRunningStatus(status)) return isObservation.value ? '观察已载入' : '手机端已载入'
+  if (props.starting) return '采集启动中'
+  if (videoActive.value) return '采集中'
+  if (needsVideoSource.value) return '待接入视频流'
   if (status.includes('结束')) return '已结束'
-  return isObservation.value ? '待观察' : '待载入'
+  return '待采集'
 })
 
 const statusType = computed(() => {
   const status = String(props.session?.status || '')
-  if (isRunningStatus(status)) return 'success'
+  if (props.starting || videoActive.value) return 'success'
+  if (needsVideoSource.value) return 'warning'
   if (status.includes('结束')) return 'default'
   return 'warning'
 })
 
-const isObservation = computed(() => props.mode === 'observe')
-
 const statusTitle = computed(() => {
+  if (props.session?.live_room_name) return props.session.live_room_name
   if (props.session?.title) return props.session.title
-  return isObservation.value ? '别人直播间分析' : 'JLAO 翡翠直播'
+  return isObservation.value ? '其它直播间分析' : 'JLAO 翡翠直播'
 })
 
 const metaLine = computed(() => {
@@ -74,11 +99,7 @@ const metaLine = computed(() => {
   return `平台：${platform} · 主播：${anchor} · 场控：${props.session?.operator_name || '-'}`
 })
 
-const startButtonLabel = computed(() => (isObservation.value ? '开始观察采集' : '开始手机采集'))
-const stopButtonLabel = computed(() => (isObservation.value ? '停止观察' : '停止采集'))
-
-function isRunningStatus(status: unknown) {
-  const value = String(status || '')
-  return value.includes('直播中') || value.includes('运行')
-}
+const startButtonLabel = computed(() => '采集')
+const effectiveStartButtonLabel = computed(() => (props.starting ? '启动中' : startButtonLabel.value))
+const stopButtonLabel = computed(() => '停止采集')
 </script>

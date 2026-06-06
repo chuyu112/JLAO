@@ -12,6 +12,9 @@ LOCAL_STT_LANGUAGE = os.getenv("LOCAL_STT_LANGUAGE", "zh")
 LOCAL_STT_SAMPLE_RATE = int(os.getenv("LOCAL_STT_SAMPLE_RATE", "16000"))
 LOCAL_STT_CHUNK_SECONDS = float(os.getenv("LOCAL_STT_CHUNK_SECONDS", "4"))
 
+# STT 引擎选择: "faster-whisper" | "funasr"
+LOCAL_STT_ENGINE = os.getenv("LOCAL_STT_ENGINE", "funasr")
+
 
 class LocalSttNotConfigured(RuntimeError):
     pass
@@ -63,26 +66,53 @@ class LocalChunkStt:
             if cls._model is not None:
                 return cls._model
 
-            try:
-                from faster_whisper import WhisperModel
-            except ImportError as exc:
-                raise LocalSttNotConfigured(
-                    "本地语音识别未安装：请先执行 pip install faster-whisper，并准备本地模型。"
-                ) from exc
-
-            def load_model():
-                return WhisperModel(
-                    LOCAL_STT_MODEL,
-                    device=LOCAL_STT_DEVICE,
-                    compute_type=LOCAL_STT_COMPUTE_TYPE,
-                )
-
-            try:
-                cls._model = await asyncio.to_thread(load_model)
-            except Exception as exc:
-                raise LocalSttNotConfigured(f"本地语音识别模型加载失败：{exc}") from exc
+            if LOCAL_STT_ENGINE == "funasr":
+                cls._model = await cls._load_funasr_model()
+            else:
+                cls._model = await cls._load_faster_whisper_model()
 
             return cls._model
+
+    @classmethod
+    async def _load_funasr_model(cls):
+        try:
+            from funasr import AutoModel
+        except ImportError as exc:
+            raise LocalSttNotConfigured(
+                "本地语音识别未安装：请先执行 pip install funasr"
+            ) from exc
+
+        def load_model():
+            return AutoModel(
+                model="paraformer-zh",
+                device=LOCAL_STT_DEVICE,
+            )
+
+        try:
+            return await asyncio.to_thread(load_model)
+        except Exception as exc:
+            raise LocalSttNotConfigured(f"FunASR 模型加载失败：{exc}") from exc
+
+    @classmethod
+    async def _load_faster_whisper_model(cls):
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise LocalSttNotConfigured(
+                "本地语音识别未安装：请先执行 pip install faster-whisper，并准备本地模型。"
+            ) from exc
+
+        def load_model():
+            return WhisperModel(
+                LOCAL_STT_MODEL,
+                device=LOCAL_STT_DEVICE,
+                compute_type=LOCAL_STT_COMPUTE_TYPE,
+            )
+
+        try:
+            return await asyncio.to_thread(load_model)
+        except Exception as exc:
+            raise LocalSttNotConfigured(f"本地语音识别模型加载失败：{exc}") from exc
 
     async def _transcribe_chunk(self, audio: bytes) -> None:
         try:
@@ -114,13 +144,19 @@ class LocalChunkStt:
                 wav_file.setframerate(LOCAL_STT_SAMPLE_RATE)
                 wav_file.writeframes(audio)
 
-            segments, _ = model.transcribe(
-                temp_path,
-                language=LOCAL_STT_LANGUAGE,
-                vad_filter=True,
-                beam_size=1,
-            )
-            return "".join(segment.text for segment in segments)
+            if LOCAL_STT_ENGINE == "funasr":
+                result = model.generate(input=temp_path, batch_size=1)
+                if result and len(result) > 0:
+                    return result[0].get("text", "")
+                return ""
+            else:
+                segments, _ = model.transcribe(
+                    temp_path,
+                    language=LOCAL_STT_LANGUAGE,
+                    vad_filter=True,
+                    beam_size=1,
+                )
+                return "".join(segment.text for segment in segments)
         finally:
             try:
                 os.unlink(temp_path)

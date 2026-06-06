@@ -47,6 +47,13 @@ import type {
   WikiChunk,
   WsMessage,
 } from '../types'
+import {
+  clearCaptureModeLock,
+  isModeStartBlocked,
+  readCaptureModeLock,
+  writeCaptureModeLock,
+  type CaptureMode,
+} from '../utils/captureMode'
 
 interface State {
   products: Product[]
@@ -77,6 +84,8 @@ interface State {
   phoneCaptureLoading: boolean
   nativeSttInfo: NativeSttInfo | null
   nativeSttLoading: boolean
+  activeCaptureMode: CaptureMode | null
+  captureStartupMode: CaptureMode | null
 }
 
 export const useJlaoStore = defineStore('jlao', {
@@ -109,6 +118,8 @@ export const useJlaoStore = defineStore('jlao', {
     phoneCaptureLoading: false,
     nativeSttInfo: null,
     nativeSttLoading: false,
+    activeCaptureMode: readCaptureModeLock(),
+    captureStartupMode: null,
   }),
 
   getters: {
@@ -121,17 +132,43 @@ export const useJlaoStore = defineStore('jlao', {
         .sort((a, b) => b.priority - a.priority || Date.parse(b.created_at) - Date.parse(a.created_at))
         .slice(0, 8)
     },
+    captureModeLocked(state): boolean {
+      return Boolean(state.captureStartupMode || state.activeCaptureMode)
+    },
+    isCaptureModeBlocked: (state) => (mode: CaptureMode): boolean => {
+      return isModeStartBlocked(mode, state.activeCaptureMode, state.captureStartupMode)
+    },
   },
 
   actions: {
-    async initDemo() {
+    beginCaptureStartup(mode: CaptureMode): boolean {
+      const persistedMode = readCaptureModeLock()
+      if (persistedMode) this.activeCaptureMode = persistedMode
+      if (isModeStartBlocked(mode, this.activeCaptureMode, this.captureStartupMode)) return false
+      this.activeCaptureMode = mode
+      this.captureStartupMode = mode
+      writeCaptureModeLock(mode)
+      return true
+    },
+
+    finishCaptureStartup(mode: CaptureMode) {
+      if (this.captureStartupMode === mode) this.captureStartupMode = null
+    },
+
+    clearCaptureMode(mode: CaptureMode) {
+      if (this.captureStartupMode === mode) this.captureStartupMode = null
+      if (this.activeCaptureMode === mode) this.activeCaptureMode = null
+      clearCaptureModeLock(mode)
+    },
+
+    async initDemo(platform: string = '抖音') {
       this.loading = true
       try {
         this.products = await fetchProducts()
         if (!this.currentSession) {
           this.currentSession = await createSession({
             title: 'JLAO 翡翠直播',
-            platform: '抖音',
+            platform: platform,
             anchor_name: '主播',
             operator_name: '场控',
             current_product_id: this.products[0]?.id ?? null,
@@ -392,6 +429,7 @@ export const useJlaoStore = defineStore('jlao', {
           last_error: detail || e.message || '启动失败',
           width: 0,
           height: 0,
+          recording_path: '',
         }
       } finally {
         this.scrcpyLoading = false

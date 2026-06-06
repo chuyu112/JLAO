@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="panel live-source-panel">
     <div class="live-preview" :class="{ 'is-capturing': captureActive }">
       <video v-if="captureActive" ref="captureVideo" class="live-media" autoplay playsinline controls />
@@ -18,6 +18,11 @@
         <span class="metric-label">画面识别</span>
         <span class="analysis-value">{{ frameAnalyzing ? '识别中' : latestFrame?.detected_scene || (captureActive ? '手动识别' : '待接入') }}</span>
       </div>
+      <div class="metric-box live-analysis-box jade-attribute-box">
+        <span class="metric-label">翡翠属性</span>
+        <span class="analysis-value">{{ jadeAttributeLabel }}</span>
+        <span v-if="jadeAttributeSourceLabel" class="recognition-meta">{{ jadeAttributeSourceLabel }}</span>
+      </div>
       <div class="metric-box live-analysis-box">
         <span class="metric-label">清晰度</span>
         <span class="analysis-value">{{ formatScore(latestFrame?.sharpness_score) }}</span>
@@ -26,6 +31,27 @@
         <span class="metric-label">亮度</span>
         <span class="analysis-value">{{ formatScore(latestFrame?.brightness_score) }}</span>
       </div>
+    </div>
+
+    <div v-if="hasColorDiagnostics" class="live-color-diagnostics">
+      <div class="live-color-head">
+        <span>颜色诊断</span>
+        <strong>{{ colorLayer('family') || '未提供' }} / {{ colorLayer('detail') || '未提供' }} / {{ colorLayer('pattern') || '未提供' }}</strong>
+      </div>
+      <div v-if="observedColors('opencv_subject_colors').length" class="live-color-row">
+        <span>主体 ROI</span>
+        <b v-for="candidate in observedColors('opencv_subject_colors')" :key="`subject-${candidate.family}-${candidate.ratio}`">
+          {{ candidate.family }} {{ ratioPercent(candidate.ratio) }}
+        </b>
+      </div>
+      <div v-if="observedColors('opencv_frame_colors').length" class="live-color-row muted">
+        <span>画面整体</span>
+        <b v-for="candidate in observedColors('opencv_frame_colors')" :key="`frame-${candidate.family}-${candidate.ratio}`">
+          {{ candidate.family }} {{ ratioPercent(candidate.ratio) }}
+        </b>
+      </div>
+      <small v-if="opencvPatternLabel">{{ opencvPatternLabel }}</small>
+      <small v-if="subjectRoiLabel">{{ subjectRoiLabel }}</small>
     </div>
 
   </section>
@@ -65,7 +91,6 @@ const stream = ref<MediaStream | null>(null)
 const audioContext = ref<AudioContext | null>(null)
 const audioProcessor = ref<ScriptProcessorNode | null>(null)
 const audioSource = ref<MediaStreamAudioSourceNode | null>(null)
-const audioInputStream = ref<MediaStream | null>(null)
 const projectedAudioStream = ref<MediaStream | null>(null)
 const frameTimer = ref<number | null>(null)
 const captureFrameBusy = ref(false)
@@ -94,6 +119,101 @@ const recognitionMeta = computed(() => {
   return parts.join(' · ')
 })
 
+const jadeAttributeLabel = computed(() => {
+  const frame = props.latestFrame
+  if (props.frameAnalyzing) return '识别中'
+  if (!frame) return '待识别'
+  const parts = [
+    frame.jade_color,
+    frame.jade_water,
+    frame.jade_style,
+    frame.jade_theme,
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '待识别'
+})
+
+const jadeAttributeSourceLabel = computed(() => {
+  const frame = props.latestFrame
+  const sources = frame?.jade_attribute_sources || {}
+  const parts = ['color', 'water', 'style', 'theme']
+    .map((key) => {
+      const source = sources[key]
+      if (!source?.source) return ''
+      return `${source.source}${source.method ? `/${source.method}` : ''}`
+    })
+    .filter(Boolean)
+  return Array.from(new Set(parts)).slice(0, 3).join(' · ')
+})
+
+type ObservedColor = { family: string; ratio: number }
+
+const colorAnalysis = computed(() => recordSignal(props.latestFrame?.jade_color_analysis))
+
+const hasColorDiagnostics = computed(() => Boolean(
+  colorLayer('family') ||
+  colorLayer('detail') ||
+  colorLayer('pattern') ||
+  observedColors('opencv_subject_colors').length ||
+  observedColors('opencv_frame_colors').length ||
+  opencvPatternLabel.value ||
+  subjectRoiLabel.value
+))
+
+const opencvPatternLabel = computed(() => {
+  const candidate = colorDiagnosticValue('opencv_pattern_candidate')
+  if (!candidate) return ''
+  const reason = colorDiagnosticValue('opencv_pattern_reason')
+  const policy = colorAnalysis.value.vlm_color_signal === true ? 'VLM已锁定主色，仅作诊断' : '可用于缺失补全'
+  return `OpenCV花色候选：${candidate}${reason ? ` / ${reason}` : ''} / ${policy}`
+})
+
+const subjectRoiLabel = computed(() => {
+  const roi = recordSignal(colorAnalysis.value.opencv_subject_roi)
+  const source = typeof roi.source === 'string' ? roi.source : ''
+  const reason = typeof roi.reason === 'string' ? roi.reason : ''
+  const width = Number(roi.expanded_w || roi.w || 0)
+  const height = Number(roi.expanded_h || roi.h || 0)
+  const area = Number(roi.expanded_area_ratio || roi.area_ratio || 0)
+  if (width > 0 && height > 0) {
+    return `ROI：${source || 'subject'} ${Math.round(width)}×${Math.round(height)}，面积 ${ratioPercent(area)}`
+  }
+  if (reason) return `ROI：${source || 'fallback'} / ${reason}`
+  return source ? `ROI：${source}` : ''
+})
+
+function colorLayer(key: 'family' | 'detail' | 'pattern') {
+  const value = colorAnalysis.value[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function colorDiagnosticValue(key: string) {
+  const value = colorAnalysis.value[key]
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return String(value)
+  return typeof value === 'string' ? value : ''
+}
+
+function observedColors(key: 'opencv_subject_colors' | 'opencv_frame_colors'): ObservedColor[] {
+  const value = colorAnalysis.value[key]
+  if (!Array.isArray(value)) return []
+  return value
+    .map((candidate) => {
+      const record = recordSignal(candidate)
+      const family = typeof record.family === 'string' ? record.family : ''
+      const ratio = Number(record.ratio || 0)
+      return family && Number.isFinite(ratio) ? { family, ratio } : null
+    })
+    .filter((candidate): candidate is ObservedColor => Boolean(candidate))
+}
+
+function ratioPercent(value: number) {
+  return `${Math.round((value || 0) * 100)}%`
+}
+
+function recordSignal(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
 async function startWindowCapture(mode: CaptureMode) {
   if (!navigator.mediaDevices?.getDisplayMedia) {
     message.error('当前浏览器不支持音画接入，请使用最新版 Chrome 或 Edge。')
@@ -110,15 +230,10 @@ async function startWindowCapture(mode: CaptureMode) {
         width: { ideal: 1920 },
         height: { ideal: 1080 },
       } as MediaTrackConstraints,
-      audio: mode === 'tab' ? {
-        echoCancellation: false,
-        noiseSuppression: false,
-        sampleRate: 48000,
-        suppressLocalAudioPlayback: false,
-      } as MediaTrackConstraints : false,
+      audio: false,
       preferCurrentTab: false,
       selfBrowserSurface: 'exclude',
-      systemAudio: mode === 'tab' ? 'include' : 'exclude',
+      systemAudio: 'exclude',
       surfaceSwitching: 'include',
     } as DisplayMediaStreamOptions
 
@@ -137,10 +252,6 @@ async function startWindowCapture(mode: CaptureMode) {
     }
 
     message.success(audioActive.value ? '直播标签页画面和声音已接入；开始每秒截图识别' : '直播标签页画面已接入；开始每秒截图识别')
-    if (audioActive.value) {
-      emit('startStt')
-      await startAudioStreaming(stream.value)
-    }
     startFrameCaptureLoop()
 
     const [videoTrack] = stream.value.getVideoTracks()
@@ -196,134 +307,15 @@ async function startAudioStreaming(mediaStream: MediaStream) {
   audioProcessor.value = processor
 }
 
-async function startAudioInputCapture() {
-  if (!props.sessionId) {
-    message.error('请先载入手机端会话。')
-    return false
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    message.error('当前浏览器不支持音频输入采集，请使用最新版 Chrome 或 Edge。')
-    return false
-  }
-  if (audioInputStream.value && audioActive.value) {
-    emit('startStt')
-    if (!audioProcessor.value) {
-      await startAudioStreaming(audioInputStream.value)
-    }
-    return true
-  }
-
-  try {
-    const mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        sampleRate: 48000,
-      },
-      video: false,
-    })
-    audioInputStream.value = mediaStream
-    audioActive.value = true
-    emit('startStt')
-    await startAudioStreaming(mediaStream)
-    for (const audioTrack of mediaStream.getAudioTracks()) {
-      audioTrack.addEventListener('ended', () => {
-        stopAudioInputCapture()
-      })
-    }
-    message.success('音频输入已随手机端同步接入。')
-    return true
-  } catch (error) {
-    audioInputStream.value = null
-    audioActive.value = false
-    emit('stopStt')
-    message.error('音频输入未接入，请确认浏览器麦克风权限和电脑音频输入设备。')
-    return false
-  }
-}
-
 async function startProjectedAudioCapture() {
-  if (!props.sessionId) {
-    message.error('请先载入手机端会话。')
-    return false
-  }
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    message.error('当前浏览器不支持投屏音频采集，请使用最新版 Chrome 或 Edge。')
-    return false
-  }
-  if (projectedAudioStream.value && audioActive.value) {
-    if (!audioProcessor.value) {
-      await startAudioStreaming(projectedAudioStream.value)
-    }
-    emit('startStt')
-    return true
-  }
-
-  try {
-    const mediaOptions: DisplayMediaStreamOptions = {
-      video: {
-        displaySurface: 'monitor',
-        frameRate: { ideal: 1, max: 1 },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      } as MediaTrackConstraints,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        sampleRate: 48000,
-        suppressLocalAudioPlayback: false,
-      } as MediaTrackConstraints,
-      preferCurrentTab: false,
-      selfBrowserSurface: 'exclude',
-      systemAudio: 'include',
-      surfaceSwitching: 'exclude',
-    } as DisplayMediaStreamOptions
-
-    const mediaStream = await navigator.mediaDevices.getDisplayMedia(mediaOptions)
-    if (mediaStream.getAudioTracks().length === 0) {
-      mediaStream.getTracks().forEach((track) => track.stop())
-      projectedAudioStream.value = null
-      audioActive.value = false
-      emit('stopStt')
-      message.error('投屏系统音频未接入，请在浏览器弹窗选择整个屏幕并勾选共享系统音频。')
-      return false
-    }
-
-    projectedAudioStream.value = mediaStream
-    audioActive.value = true
-    await startAudioStreaming(mediaStream)
-    emit('startStt')
-    for (const track of mediaStream.getTracks()) {
-      track.addEventListener('ended', () => {
-        stopProjectedAudioCapture()
-      })
-    }
-    message.success('投屏声音已随手机采集接入实时转写。')
-    return true
-  } catch (error) {
-    projectedAudioStream.value = null
-    audioActive.value = false
-    emit('stopStt')
-    const secure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    message.error(secure ? '没有选择投屏音频来源。' : '浏览器要求 HTTPS 或 localhost 才能接入投屏系统音频。')
-    return false
-  }
+  message.error('实时转写使用手机原生音频。')
+  return false
 }
 
 function stopProjectedAudioCapture() {
   stopAudioStreaming()
   projectedAudioStream.value?.getTracks().forEach((track) => track.stop())
   projectedAudioStream.value = null
-  audioActive.value = false
-  emit('stopStt')
-}
-
-function stopAudioInputCapture() {
-  stopAudioStreaming()
-  audioInputStream.value?.getTracks().forEach((track) => track.stop())
-  audioInputStream.value = null
   audioActive.value = false
   emit('stopStt')
 }
@@ -454,13 +446,57 @@ function clamp(value: number, min: number, max: number) {
 defineExpose({
   startProjectedAudioCapture,
   stopProjectedAudioCapture,
-  startAudioInputCapture,
-  stopAudioInputCapture,
 })
 
 onBeforeUnmount(() => {
   stopWindowCapture()
   stopProjectedAudioCapture()
-  stopAudioInputCapture()
 })
 </script>
+
+<style scoped>
+.live-color-diagnostics {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(94, 232, 199, 0.16);
+  background: rgba(10, 22, 27, 0.72);
+  display: grid;
+  gap: 8px;
+}
+
+.live-color-head,
+.live-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-color-head span,
+.live-color-row span,
+.live-color-diagnostics small {
+  color: #8fa3b6;
+  font-size: 12px;
+}
+
+.live-color-head strong {
+  color: #dcfff6;
+  font-size: 13px;
+}
+
+.live-color-row b {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #dcfff6;
+  background: rgba(94, 232, 199, 0.13);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.live-color-row.muted {
+  opacity: 0.8;
+}
+</style>
+
+

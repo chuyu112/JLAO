@@ -1,9 +1,9 @@
-<template>
+﻿<template>
   <section class="panel virtual-customer-panel">
     <div class="panel-header">
       <div>
-        <h2>模拟客户线索</h2>
-        <p>公开视频号观察样本 · 不沉淀真实客户</p>
+        <h2>客户线索</h2>
+        <p>直播弹幕与高价值客户线索</p>
       </div>
       <span class="count-pill">{{ customers.length }}</span>
     </div>
@@ -23,11 +23,14 @@
       <article v-for="event in events.slice(0, 5)" :key="event.id" class="event-item" :class="{ alert: event.event_type === '高价值进房' }">
         <div>
           <span>{{ event.event_type }}</span>
-          <small>{{ event.customer_nickname }} · {{ event.customer_level }}</small>
+          <small>
+            {{ event.customer_level }}{{ event.customer_nickname }}
+            <em v-if="event.is_updated">更新</em>
+          </small>
         </div>
         <p>{{ event.content }}</p>
       </article>
-      <div v-if="!events.length" class="empty-state compact">等待转写中出现可训练的客户问题线索。</div>
+      <div v-if="!events.length" class="empty-state compact">等待直播弹幕和客户线索。</div>
     </div>
   </section>
 </template>
@@ -127,6 +130,18 @@ function formatAmount(value: number) {
 .event-item small {
   color: #8fa3b6;
   font-size: 11px;
+}
+.event-item em {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid rgba(255, 92, 92, 0.9);
+  border-radius: 4px;
+  color: #ff8f8f;
+  font-size: 10px;
+  font-style: normal;
+  background: rgba(255, 92, 92, 0.12);
 }
 .event-list {
   display: grid;

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import audioop
 import os
 import sys
@@ -34,8 +34,19 @@ class NativeSttTaskState:
 
 _STREAM_READ_INTERVAL_SECONDS = 0.08
 _STREAM_HEADER_TIMEOUT_SECONDS = 8.0
+_ADB_RECONNECT_TIMEOUT_SECONDS = 30.0
+_AUDIO_RESTART_DELAY_SECONDS = 1.0
 native_stt_tasks: dict[str, NativeSttTaskState] = {}
 _DEFAULT_NATIVE_STT_DEVICE_KEY = "__default__"
+
+
+async def initialize_native_stt_runtime() -> None:
+    native_stt_tasks.clear()
+    scrcpy_exe = _get_scrcpy_exe()
+    if not scrcpy_exe:
+        return
+    await _close_stale_native_audio_processes()
+    await _recover_adb_device(serial="", scrcpy_exe=scrcpy_exe, wait_for_device=False)
 
 
 def _native_stt_device_key(serial: str) -> str:
@@ -114,7 +125,7 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
     task_state = native_stt_tasks[session_id]
     chunk_dir = WORKSPACE_DIR / "tmp" / "native-stt" / session_id
     chunk_dir.mkdir(parents=True, exist_ok=True)
-    wav_path = chunk_dir / f"stream-{time.time_ns()}.wav"
+    wav_path: Path | None = None
     process: asyncio.subprocess.Process | None = None
     stderr_messages: list[str] = []
     stderr_task: asyncio.Task[None] | None = None
@@ -139,21 +150,50 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
         await manager.broadcast(session_id, "stt_status", {"status": "connected", "provider": "aliyun", "source": "native-scrcpy"})
         await manager.broadcast(session_id, "native_stt_status", status(session_id))
 
-        process = await _start_audio_record_process(serial=serial, output_path=wav_path)
-        stderr_task = asyncio.create_task(_collect_process_stderr(process, stderr_messages))
-        await _stream_recorded_wav(
-            process=process,
-            wav_path=wav_path,
-            stt=stt,
-            task_state=task_state,
-            stderr_messages=stderr_messages,
-        )
+        scrcpy_exe = _get_scrcpy_exe()
+        if not scrcpy_exe:
+            raise FileNotFoundError("未找到 scrcpy.exe，无法采集手机原生音频。")
+
+        while task_state.running:
+            wav_path = chunk_dir / f"stream-{time.time_ns()}.wav"
+            stderr_messages = []
+            process = await _start_audio_record_process(serial=serial, output_path=wav_path, scrcpy_exe=scrcpy_exe)
+            stderr_task = asyncio.create_task(_collect_process_stderr(process, stderr_messages))
+            try:
+                await _stream_recorded_wav(
+                    process=process,
+                    wav_path=wav_path,
+                    stt=stt,
+                    task_state=task_state,
+                    stderr_messages=stderr_messages,
+                )
+                break
+            except Exception as exc:
+                if not task_state.running or not _is_scrcpy_recoverable_error(str(exc)):
+                    raise
+                task_state.last_error = "手机音频连接断开，正在自动重连..."
+                await manager.broadcast(session_id, "stt_error", {"message": task_state.last_error})
+                await manager.broadcast(session_id, "native_stt_status", status(session_id))
+                await _terminate_process(process)
+                process = None
+                if stderr_task and not stderr_task.done():
+                    stderr_task.cancel()
+                stderr_task = None
+                try:
+                    wav_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                await _recover_adb_device(serial=serial, scrcpy_exe=scrcpy_exe, wait_for_device=True)
+                task_state.last_error = ""
+                await manager.broadcast(session_id, "native_stt_status", status(session_id))
+                await asyncio.sleep(_AUDIO_RESTART_DELAY_SECONDS)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         task_state.running = False
-        task_state.last_error = str(exc)
-        await manager.broadcast(session_id, "stt_error", {"message": f"原生手机音频转写失败：{exc}"})
+        message = _native_stt_error_message(str(exc))
+        task_state.last_error = message
+        await manager.broadcast(session_id, "stt_error", {"message": message})
         await manager.broadcast(session_id, "native_stt_status", status(session_id))
     finally:
         task_state.running = False
@@ -162,15 +202,16 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
         if stderr_task and not stderr_task.done():
             stderr_task.cancel()
         await stt.close()
-        try:
-            wav_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if wav_path:
+            try:
+                wav_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         await manager.broadcast(session_id, "stt_status", {"status": "closed", "provider": "aliyun", "source": "native-scrcpy"})
 
 
-async def _start_audio_record_process(serial: str, output_path: Path) -> asyncio.subprocess.Process:
-    scrcpy_exe = _get_scrcpy_exe()
+async def _start_audio_record_process(serial: str, output_path: Path, scrcpy_exe: str | None = None) -> asyncio.subprocess.Process:
+    scrcpy_exe = scrcpy_exe or _get_scrcpy_exe()
     if not scrcpy_exe:
         raise FileNotFoundError("未找到 scrcpy.exe，无法采集手机原生音频。")
 
@@ -330,7 +371,115 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
 
 def _scrcpy_error_message(return_code: int, stderr_messages: list[str]) -> str:
     message = "\n".join(stderr_messages).strip()
+    if _is_playback_audio_unavailable_error(message):
+        return _PLAYBACK_AUDIO_UNAVAILABLE_MESSAGE
     return message or f"scrcpy 音频采集失败，退出码：{return_code}"
+
+
+_PLAYBACK_AUDIO_UNAVAILABLE_MESSAGE = "设备当前没有可采集的手机原生音频。"
+
+
+def _is_playback_audio_unavailable_error(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "stream explicitly disabled by the device" in lowered
+        or "audio stream recording disabled" in lowered
+        or "no streams to mux were specified" in lowered
+    )
+
+
+def _is_device_disconnected_error(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "device disconnected" in lowered
+        or "device offline" in lowered
+        or "\toffline" in lowered
+        or ("adb: device" in lowered and "offline" in lowered)
+    )
+
+
+def _is_scrcpy_recoverable_error(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        _is_device_disconnected_error(message)
+        or "server connection failed" in lowered
+        or "connection failed" in lowered
+        or "connection reset" in lowered
+        or "connection closed" in lowered
+        or "aborted" in lowered
+    )
+
+
+def _native_stt_error_message(message: str) -> str:
+    if _is_playback_audio_unavailable_error(message):
+        return _PLAYBACK_AUDIO_UNAVAILABLE_MESSAGE
+    return f"原生手机音频转写失败：{message}"
+
+
+async def _recover_adb_device(serial: str, scrcpy_exe: str, wait_for_device: bool = True) -> None:
+    adb_exe = _adb_exe_for_scrcpy(scrcpy_exe)
+    await _run_adb_command(adb_exe, serial, ["reconnect", "offline"], timeout=10.0, allow_failure=True)
+    await _run_adb_command(adb_exe, serial, ["reconnect", "device"], timeout=10.0, allow_failure=True)
+    if wait_for_device:
+        await _run_adb_command(adb_exe, serial, ["wait-for-device"], timeout=_ADB_RECONNECT_TIMEOUT_SECONDS)
+
+
+async def _close_stale_native_audio_processes() -> None:
+    if sys.platform != "win32":
+        return
+    script = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.Name -ieq 'scrcpy.exe' "
+        "-and $_.CommandLine -like '*--no-video*' "
+        "-and $_.CommandLine -like '*--audio-source=voice-performance*' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            script,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(process.wait(), timeout=5.0)
+    except Exception:
+        return
+
+
+def _adb_exe_for_scrcpy(scrcpy_exe: str) -> str:
+    candidate = Path(scrcpy_exe).with_name("adb.exe" if sys.platform == "win32" else "adb")
+    if candidate.exists():
+        return str(candidate)
+    return "adb"
+
+
+async def _run_adb_command(
+    adb_exe: str,
+    serial: str,
+    args: list[str],
+    timeout: float,
+    allow_failure: bool = False,
+) -> None:
+    command = [adb_exe]
+    if serial:
+        command.extend(["-s", serial])
+    command.extend(args)
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise RuntimeError("等待手机 ADB 自动重连超时") from exc
+    if process.returncode != 0 and not allow_failure:
+        message = (stderr or stdout).decode("utf-8", errors="ignore").strip()
+        raise RuntimeError(message or f"ADB 自动重连失败，退出码：{process.returncode}")
 
 
 def _build_audio_record_command(scrcpy_exe: str, serial: str, output_path: Path, chunk_seconds: int = 0) -> list[str]:
@@ -373,3 +522,5 @@ def _wav_to_pcm16_mono_16k(path: str) -> bytes:
     if sample_rate != 16000:
         frames, _ = audioop.ratecv(frames, sample_width, 1, sample_rate, 16000, None)
     return frames
+
+

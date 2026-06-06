@@ -1,0 +1,6 @@
+path: D:/JLAO/data/jade_low_conf_typical_source_eval_10
+train: images/test
+val: images/test
+test: images/test
+names:
+  0: jade_bangle

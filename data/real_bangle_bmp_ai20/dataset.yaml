@@ -1,0 +1,5 @@
+path: D:/JLAO/data/real_bangle_bmp_ai20
+train: images/train
+val: images/val
+names:
+  0: jade_bangle

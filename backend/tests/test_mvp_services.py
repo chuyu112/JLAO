@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import unittest
 from pathlib import Path
 
@@ -49,6 +49,333 @@ class DatabaseRepositoryTests(unittest.TestCase):
         products = list_products()
         self.assertEqual(len(products), 1)
         self.assertEqual(products[0].name, "测试手镯")
+
+    def test_init_db_adds_product_status_to_existing_database(self) -> None:
+        from sqlalchemy import text
+
+        from app.db import configure_database, get_engine, init_db
+        from app.repositories import list_products
+
+        configure_database("sqlite:///:memory:")
+        with get_engine().begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE products (
+                        id VARCHAR(64) PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        category VARCHAR(100) NOT NULL,
+                        material VARCHAR(100),
+                        color VARCHAR(100),
+                        water VARCHAR(100),
+                        size VARCHAR(255),
+                        weight VARCHAR(100),
+                        certificate VARCHAR(255),
+                        flaws TEXT,
+                        cautions TEXT,
+                        price FLOAT,
+                        selling_points JSON,
+                        faq JSON,
+                        recommended_scripts JSON
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO products (
+                        id, name, category, material, color, water, selling_points, faq, recommended_scripts
+                    )
+                    VALUES (
+                        'legacy-001', '旧库商品', '手镯', '天然翡翠', '晴水', '糯冰', '[]', '[]', '[]'
+                    )
+                    """
+                )
+            )
+
+        init_db()
+
+        products = list_products()
+        self.assertEqual(products[0].status, "在售")
+
+
+class JadeMultimodalServiceTests(unittest.TestCase):
+    def test_text_analysis_extracts_jade_color_water_style_size_and_price(self) -> None:
+        from app.services.jade_multimodal_service import analyze_jade_text
+
+        result = analyze_jade_text("这条蓝水珠串是糯冰种，单珠约 8mm，18 颗，报价 5600")
+
+        self.assertEqual(result.color, "蓝水")
+        self.assertEqual(result.water, "糯冰")
+        self.assertEqual(result.style, "珠串")
+        self.assertIn("8mm", result.size)
+        self.assertIn("18 颗", result.size)
+        self.assertEqual(result.price, 5600)
+        self.assertGreaterEqual(result.confidence, 0.7)
+
+    def test_text_analysis_extracts_theme_when_product_is_carving(self) -> None:
+        from app.services.jade_multimodal_service import analyze_jade_text
+
+        result = analyze_jade_text("这件白冰冰种观音，高 45mm，宽 28mm，题材吉祥")
+
+        self.assertEqual(result.color, "白冰")
+        self.assertEqual(result.water, "冰种")
+        self.assertEqual(result.theme, "观音")
+        self.assertIn("高 45mm", result.size)
+
+    def test_merge_analysis_combines_image_color_and_speech_attributes(self) -> None:
+        from app.services.jade_multimodal_service import JadeAnalysis, analyze_jade_text, merge_jade_analysis
+
+        image = JadeAnalysis(color="阳绿", style="手镯", evidence_image_paths=["frame.jpg"], detections=[{"label": "jade_bangle", "confidence": 0.82}])
+        text = analyze_jade_text("冰糯蛋面，8.5mm x 6.2mm，适合做戒指")
+        merged = merge_jade_analysis(image, text)
+
+        self.assertEqual(merged.color, "阳绿")
+        self.assertEqual(merged.water, "冰糯")
+        self.assertEqual(merged.style, "手镯")
+        self.assertIn("frame.jpg", merged.evidence_image_paths)
+        self.assertEqual(merged.detections[0]["label"], "jade_bangle")
+        self.assertTrue(merged.evidence_texts)
+
+    def test_live_context_merges_current_frame_with_recent_anchor_transcripts(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.schemas import TranscriptSegment
+        from app.services.jade_multimodal_service import JadeAnalysis, analyze_live_jade_context
+        from app.state import app_state
+
+        session_id = "live-context-jade"
+        app_state.transcripts[session_id] = [
+            TranscriptSegment(
+                id="seg-context-001",
+                session_id=session_id,
+                index=1,
+                text="这件是冰种观音，高 45mm，宽 28mm",
+                keywords=[],
+                created_at=datetime.now(timezone.utc),
+            )
+        ]
+
+        try:
+            result = analyze_live_jade_context(
+                session_id,
+                image_analysis=JadeAnalysis(color="白冰", evidence_image_paths=["frame-context.jpg"]),
+            )
+        finally:
+            app_state.transcripts.pop(session_id, None)
+
+        self.assertEqual(result.color, "白冰")
+        self.assertEqual(result.water, "冰种")
+        self.assertEqual(result.theme, "观音")
+        self.assertIn("45mm", result.size)
+        self.assertIn("frame-context.jpg", result.evidence_image_paths)
+        self.assertIn("这件是冰种观音", result.evidence_texts[0])
+        self.assertEqual(result.signals["source"], "live-context")
+        self.assertEqual(result.signals["recent_transcript_ids"], ["seg-context-001"])
+
+    def test_yolo_label_mapping_extracts_jade_style_and_theme(self) -> None:
+        from app.services.jade_yolo_service import jade_attributes_from_yolo_label
+
+        self.assertEqual(jade_attributes_from_yolo_label("jade_bangle"), ("手镯", ""))
+        self.assertEqual(jade_attributes_from_yolo_label("guanyin_pendant"), ("吊坠", "观音"))
+        self.assertEqual(jade_attributes_from_yolo_label("guanyin"), ("", "观音"))
+
+    def test_image_analysis_runs_without_configured_yolo_model(self) -> None:
+        import tempfile
+
+        import cv2
+        import numpy as np
+
+        from app.services.jade_multimodal_service import analyze_jade_image
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            image = np.full((80, 80, 3), (180, 160, 60), dtype=np.uint8)
+            cv2.imwrite(str(temp_path), image)
+
+            result = analyze_jade_image(temp_path)
+
+            self.assertIn("yolo", result.signals)
+            self.assertFalse(result.signals["yolo"]["enabled"])
+            self.assertEqual(result.signals["yolo"]["reason"], "model-not-configured")
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_image_analysis_estimates_water_from_clear_jade_like_frame(self) -> None:
+        import tempfile
+
+        import cv2
+        import numpy as np
+
+        from app.services.jade_multimodal_service import analyze_jade_image
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            image = np.full((120, 120, 3), (180, 215, 175), dtype=np.uint8)
+            cv2.circle(image, (60, 60), 38, (150, 230, 145), -1)
+            cv2.GaussianBlur(image, (17, 17), 0, dst=image)
+            cv2.imwrite(str(temp_path), image)
+
+            result = analyze_jade_image(temp_path)
+
+            self.assertIn(result.water, {"高冰", "冰种", "糯冰"})
+            self.assertIn("water_features", result.signals)
+            self.assertGreater(result.signals["water_features"]["clarity_score"], 0.45)
+            self.assertTrue(result.color)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_image_analysis_estimates_lower_water_from_noisy_jade_like_frame(self) -> None:
+        import tempfile
+
+        import cv2
+        import numpy as np
+
+        from app.services.jade_multimodal_service import analyze_jade_image
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            rng = np.random.default_rng(7)
+            image = np.full((120, 120, 3), (70, 130, 80), dtype=np.uint8)
+            noise = rng.integers(0, 95, size=image.shape, dtype=np.uint8)
+            image = cv2.add(image, noise)
+            cv2.imwrite(str(temp_path), image)
+
+            result = analyze_jade_image(temp_path)
+
+            self.assertIn(result.water, {"糯冰", "糯种", "豆种"})
+            self.assertIn("water_features", result.signals)
+            self.assertGreater(result.signals["water_features"]["texture"], 100)
+            self.assertTrue(result.color)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_yolo_runtime_status_reports_model_and_package_readiness(self) -> None:
+        import tempfile
+
+        from app.services.jade_yolo_service import get_yolo_runtime_status
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_model = Path(temp_dir) / "missing-jade-yolo.pt"
+
+            status = get_yolo_runtime_status(missing_model)
+
+        self.assertFalse(status["enabled"])
+        self.assertEqual(status["reason"], "model-not-configured")
+        self.assertEqual(status["resolved_model_path"], "")
+        self.assertIn("package_available", status)
+
+    def test_analysis_upserts_live_product_record_with_evidence(self) -> None:
+        import asyncio
+
+        from app.db import configure_database, init_db
+        from app.repositories import list_products
+        from app.services.jade_multimodal_service import analyze_jade_text, upsert_live_jade_product
+        from app.state import app_state
+
+        configure_database("sqlite:///:memory:")
+        init_db()
+        app_state.products.clear()
+
+        first = analyze_jade_text("这条蓝水珠串是糯冰种，单珠约 8mm，18 颗，报价 5600")
+        product = asyncio.run(upsert_live_jade_product("live-jade-upsert", first))
+
+        self.assertIsNotNone(product)
+        self.assertEqual(product.color, "蓝水")
+        self.assertEqual(product.water, "糯冰")
+        self.assertEqual(product.style, "珠串")
+        self.assertIn("8mm", product.size)
+        self.assertEqual(product.price, 5600)
+
+        second = analyze_jade_text("蓝水珠串颜色统一，珠形规整")
+        updated = asyncio.run(upsert_live_jade_product("live-jade-upsert", second))
+        products = list_products()
+
+        self.assertEqual(updated.id, product.id)
+        self.assertEqual(len(products), 1)
+        self.assertGreaterEqual(len(products[0].evidence_texts), 2)
+
+
+class CaptureArchiveRepositoryTests(unittest.TestCase):
+    def test_capture_archive_records_video_image_and_text_metadata(self) -> None:
+        from app.db import configure_database, init_db
+        from app.repositories import list_capture_archives, save_capture_archive
+        from app.schemas import CaptureArchiveItem
+
+        configure_database("sqlite:///:memory:")
+        init_db()
+
+        save_capture_archive(
+            CaptureArchiveItem(
+                id="arch-video-001",
+                session_id="live-archive",
+                artifact_type="video",
+                source="scrcpy-record",
+                path="/uploads/recordings/live-archive/screen.mp4",
+                content="",
+                metadata={"format": "mp4"},
+            )
+        )
+        save_capture_archive(
+            CaptureArchiveItem(
+                id="arch-image-001",
+                session_id="live-archive",
+                artifact_type="image",
+                source="phone-capture",
+                path="/uploads/frames/live-archive/frame.jpg",
+                content="",
+                metadata={"sharpness_score": 100},
+            )
+        )
+        save_capture_archive(
+            CaptureArchiveItem(
+                id="arch-text-001",
+                session_id="live-archive",
+                artifact_type="text",
+                source="live-comment",
+                path="",
+                content="扣头多大？",
+                metadata={"event_type": "弹幕"},
+            )
+        )
+
+        archives = list_capture_archives("live-archive")
+
+        self.assertEqual([item.artifact_type for item in archives], ["text", "image", "video"])
+        self.assertEqual(archives[0].content, "扣头多大？")
+
+    def test_live_session_persists_detected_live_room_name(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.db import configure_database, init_db
+        from app.repositories import list_live_sessions, save_live_session
+        from app.schemas import LiveSession
+
+        configure_database("sqlite:///:memory:")
+        init_db()
+
+        now = datetime.now(timezone.utc)
+        save_live_session(
+            LiveSession(
+                id="live-room-name",
+                title="JLAO",
+                platform="video-account",
+                live_room_name="Room A",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+        sessions = list_live_sessions()
+
+        self.assertEqual(sessions[0].live_room_name, "Room A")
 
 
 class VirtualCustomerTests(unittest.TestCase):
@@ -283,7 +610,7 @@ class SttWebsocketTests(unittest.TestCase):
 
 
 class ScrcpyCommandTests(unittest.TestCase):
-    def test_projection_scrcpy_disables_audio_forwarding(self) -> None:
+    def test_projection_scrcpy_uses_playback_audio_not_microphone(self) -> None:
         from unittest.mock import patch
 
         from app.services.scrcpy_service import _build_scrcpy_command
@@ -294,11 +621,102 @@ class ScrcpyCommandTests(unittest.TestCase):
         ):
             launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
 
-        self.assertIn("--no-audio", launch.command)
+        self.assertIn("--audio-source=playback", launch.command)
+        self.assertNotIn("--no-audio", launch.command)
+        self.assertNotIn("--audio-source=mic", launch.command)
+        self.assertNotIn("--audio-source=voice-performance", launch.command)
+
+    def test_command_line_scrcpy_is_preferred_when_both_drivers_exist(self) -> None:
+        from unittest.mock import patch
+
+        from app.services.scrcpy_service import _build_scrcpy_command
+
+        scrcpy_exe = r"D:\scrcpy-win64-v4.0\scrcpy.exe"
+        qtscrcpy_exe = r"D:\QtScrcpy-win-x64-v3.3.3\QtScrcpy.exe"
+
+        with (
+            patch("app.services.scrcpy_service._get_scrcpy_exe", return_value=scrcpy_exe),
+            patch("app.services.scrcpy_service._get_qtscrcpy_exe", return_value=qtscrcpy_exe),
+        ):
+            launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
+
+        self.assertEqual("scrcpy", launch.mode)
+        self.assertEqual(scrcpy_exe, launch.command[0])
+
+    def test_command_line_scrcpy_records_screen_video_when_path_is_provided(self) -> None:
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from app.services.scrcpy_service import _build_scrcpy_command
+
+        record_path = Path("uploads/recordings/live-001/screen.mp4")
+        with (
+            patch("app.services.scrcpy_service._get_scrcpy_exe", return_value=r"D:\scrcpy-win64-v4.0\scrcpy.exe"),
+            patch("app.services.scrcpy_service._get_qtscrcpy_exe", return_value=None),
+        ):
+            launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000, record_path=record_path)
+
+        self.assertIn("--record", launch.command)
+        self.assertIn(str(record_path), launch.command)
+        self.assertIn("--record-format", launch.command)
+        self.assertIn("mp4", launch.command)
+
+    def test_user_selected_qtscrcpy_directory_resolves_to_executable(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from app.services.scrcpy_service import _build_scrcpy_command, set_scrcpy_path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            driver_dir = Path(temp_dir) / "QtScrcpy-win-x64"
+            driver_dir.mkdir()
+            qtscrcpy_exe = driver_dir / "QtScrcpy.exe"
+            qtscrcpy_exe.write_bytes(b"")
+
+            try:
+                set_scrcpy_path(str(driver_dir))
+                launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
+            finally:
+                set_scrcpy_path(None)
+
+        self.assertEqual(launch.command[0], str(qtscrcpy_exe))
+        self.assertEqual(launch.cwd, str(driver_dir))
+
+    def test_invalid_user_scrcpy_path_is_rejected(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from app.services.scrcpy_service import set_scrcpy_path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing = Path(temp_dir) / "missing-scrcpy.exe"
+            with self.assertRaises(FileNotFoundError):
+                set_scrcpy_path(str(missing))
+
+    def test_drive_root_scan_finds_scrcpy_bundles_one_level_down(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from app.services.scrcpy_service import _scan_drive_root_scrcpy_candidates
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scrcpy_dir = Path(temp_dir) / "scrcpy-win64-v4.0"
+            qtscrcpy_dir = Path(temp_dir) / "QtScrcpy-win-x64"
+            scrcpy_dir.mkdir()
+            qtscrcpy_dir.mkdir()
+            scrcpy_exe = scrcpy_dir / "scrcpy.exe"
+            qtscrcpy_exe = qtscrcpy_dir / "QtScrcpy.exe"
+            scrcpy_exe.write_bytes(b"")
+            qtscrcpy_exe.write_bytes(b"")
+
+            candidates = _scan_drive_root_scrcpy_candidates(temp_dir)
+
+        self.assertIn(str(scrcpy_exe), candidates["scrcpy"])
+        self.assertIn(str(qtscrcpy_exe), candidates["qtscrcpy"])
 
 
 class NativeSttServiceTests(unittest.TestCase):
-    def test_audio_record_command_keeps_device_playback_alive(self) -> None:
+    def test_audio_record_command_uses_voice_performance_source(self) -> None:
         from pathlib import Path
 
         from app.services.native_stt_service import _build_audio_record_command
@@ -314,8 +732,36 @@ class NativeSttServiceTests(unittest.TestCase):
         self.assertIn("--no-audio-playback", command)
         self.assertNotIn("--time-limit", command)
         self.assertNotIn("--audio-dup", command)
-        self.assertNotIn("--audio-source=playback", command)
+        self.assertNotIn("--audio-source=mic", command)
         self.assertNotIn("--audio-source=output", command)
+        self.assertNotIn("--audio-source=playback", command)
+
+    def test_scrcpy_device_disconnected_error_is_recoverable(self) -> None:
+        from app.services.native_stt_service import _is_device_disconnected_error, _is_scrcpy_recoverable_error
+
+        self.assertTrue(_is_device_disconnected_error("WARN: Device disconnected"))
+        self.assertTrue(_is_device_disconnected_error("3AF9K24227080668\toffline"))
+        self.assertTrue(_is_device_disconnected_error("adb: device offline"))
+        self.assertFalse(_is_device_disconnected_error("No streams to mux were specified"))
+        self.assertTrue(_is_scrcpy_recoverable_error("Aborted\nERROR: Server connection failed"))
+
+    def test_adb_exe_is_resolved_next_to_scrcpy(self) -> None:
+        from app.services.native_stt_service import _adb_exe_for_scrcpy
+
+        self.assertEqual(
+            _adb_exe_for_scrcpy(r"D:\scrcpy-win64-v4.0\scrcpy.exe"),
+            r"D:\scrcpy-win64-v4.0\adb.exe",
+        )
+
+    def test_startup_adb_recover_can_skip_waiting_for_device(self) -> None:
+        import inspect
+
+        from app.services.native_stt_service import _recover_adb_device
+
+        signature = inspect.signature(_recover_adb_device)
+
+        self.assertIn("wait_for_device", signature.parameters)
+        self.assertTrue(signature.parameters["wait_for_device"].default)
 
     def test_streaming_wav_data_offset_is_detected_from_scrcpy_header(self) -> None:
         from app.services.native_stt_service import _find_wav_data_offset
@@ -370,6 +816,77 @@ class NativeSttServiceTests(unittest.TestCase):
             Path(temp_path).unlink(missing_ok=True)
 
 
+class PhoneCaptureServiceTests(unittest.TestCase):
+    def test_windows_adb_lookup_includes_scrcpy_v4_bundle(self) -> None:
+        from unittest.mock import patch
+
+        from app.services.phone_capture_service import _get_adb_exe
+
+        expected = r"D:\scrcpy-win64-v4.0\adb.exe"
+
+        with (
+            patch("app.services.phone_capture_service.sys.platform", "win32"),
+            patch("app.services.phone_capture_service.os.path.exists", side_effect=lambda path: path == expected),
+            patch("app.services.phone_capture_service.shutil.which", return_value=None),
+        ):
+            self.assertEqual(_get_adb_exe(), expected)
+
+    def test_drive_root_scan_finds_adb_next_to_scrcpy_bundle(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from app.services.phone_capture_service import _scan_drive_root_adb_candidates
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scrcpy_dir = Path(temp_dir) / "scrcpy-win64-v4.0"
+            scrcpy_dir.mkdir()
+            adb_exe = scrcpy_dir / "adb.exe"
+            adb_exe.write_bytes(b"")
+
+            candidates = _scan_drive_root_adb_candidates(temp_dir)
+
+        self.assertIn(str(adb_exe), candidates)
+
+
+class LiveRoomNameDetectionTests(unittest.TestCase):
+    def test_extract_live_room_name_uses_top_left_room_label_not_static_store_name(self) -> None:
+        from app.services.live_room_name_service import extract_live_room_name
+
+        room_name = extract_live_room_name(
+            [
+                "LIVE",
+                "Current Room 88",
+                "Follow",
+                "10.2w",
+            ]
+        )
+
+        self.assertEqual(room_name, "Current Room 88")
+
+    def test_extract_live_room_name_skips_video_account_ui_noise(self) -> None:
+        from app.services.live_room_name_service import extract_live_room_name
+
+        room_name = extract_live_room_name(["视频号", "直播中", "New Shop 2", "关注"])
+
+        self.assertEqual(room_name, "New Shop 2")
+
+    def test_extract_live_room_name_matches_known_observation_shops(self) -> None:
+        from app.services.live_room_name_service import extract_live_room_name
+
+        expected_names = [
+            "浅玩翡翠2号店",
+            "菲菲珠宝闲置店",
+            "佳心珠宝回流寄售",
+            "且慢翡翠珠宝定制",
+            "闲值珠宝",
+            "春风翡翠寄售回流",
+        ]
+
+        for name in expected_names:
+            with self.subTest(name=name):
+                self.assertEqual(extract_live_room_name(["视频号", f"LIVE {name} 的直播间", "关注"]), name)
+
+
 class LiveCommentOcrTests(unittest.TestCase):
     def test_ocr_lines_are_parsed_into_real_live_comment_events(self) -> None:
         from datetime import datetime, timezone
@@ -388,7 +905,7 @@ class LiveCommentOcrTests(unittest.TestCase):
         )
 
         self.assertEqual([event.customer_nickname for event in events], ["莲**", "K**"])
-        self.assertEqual(events[0].customer_level, "真实弹幕")
+        self.assertEqual(events[0].customer_level, "[粉丝]")
         self.assertEqual(events[0].event_type, "弹幕")
         self.assertEqual(events[0].content, "林老师的作品不是都被博物馆收起来了吗？")
         self.assertEqual(events[1].event_type, "关注")
@@ -438,6 +955,59 @@ class LiveCommentOcrTests(unittest.TestCase):
         self.assertEqual([event.customer_nickname for event in events], ["", ""])
         self.assertEqual(dedupe_live_comment_events("live-content-only", events), [])
 
+    def test_content_only_question_comments_are_published_without_fake_viewer_name(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        session_id = "live-content-question"
+        events = events_from_ocr_lines(
+            session_id=session_id,
+            lines=[
+                "扣头多大？",
+                "有没有0.5？",
+                "特色翡翠直播",
+            ],
+            now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
+        )
+
+        published = dedupe_live_comment_events(session_id, events)
+
+        self.assertEqual([event.content for event in published], ["扣头多大？", "有没有0.5？"])
+        self.assertEqual([event.customer_nickname for event in published], ["", ""])
+
+    def test_later_badged_masked_comment_updates_pending_content_only_comment(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+        from app.state import app_state
+
+        session_id = "live-update-pending-badged"
+        now = datetime(2026, 6, 2, 16, 32, 59, tzinfo=timezone.utc)
+        app_state.live_comments[session_id] = []
+
+        try:
+            first = dedupe_live_comment_events(
+                session_id,
+                events_from_ocr_lines(session_id, ["温钟宝跑去吃面了？"], now=now),
+            )
+            self.assertEqual(len(first), 1)
+            self.assertEqual(first[0].customer_nickname, "")
+            self.assertEqual(first[0].content, "温钟宝跑去吃面了？")
+            self.assertFalse(first[0].is_updated)
+
+            clearer = dedupe_live_comment_events(
+                session_id,
+                events_from_ocr_lines(session_id, ["+6粉丝温*钟宝跑去吃面了？"], now=now + timedelta(milliseconds=200)),
+            )
+
+            self.assertEqual(len(clearer), 1)
+            self.assertEqual(f"{clearer[0].customer_level}{clearer[0].customer_nickname}", "[+6][粉丝]温**")
+            self.assertEqual(clearer[0].content, "钟宝跑去吃面了？")
+            self.assertTrue(clearer[0].is_updated)
+        finally:
+            app_state.live_comments.pop(session_id, None)
+
     def test_repeated_live_comment_events_are_deduped_per_session(self) -> None:
         from datetime import datetime, timezone
 
@@ -462,6 +1032,34 @@ class LiveCommentOcrTests(unittest.TestCase):
         self.assertEqual(len(dedupe_live_comment_events("live-noisy-dedupe", first)), 1)
         self.assertEqual(dedupe_live_comment_events("live-noisy-dedupe", repeated), [])
 
+    def test_duplicate_live_comments_merge_into_existing_event_count(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+        from app.state import app_state
+
+        session_id = "live-merge-duplicates"
+        now = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+        app_state.live_comments[session_id] = []
+
+        try:
+            first = dedupe_live_comment_events(
+                session_id,
+                events_from_ocr_lines(session_id, ["粉丝 莲**：扣头多大？"], now=now),
+            )
+            app_state.live_comments[session_id] = first
+
+            repeated = dedupe_live_comment_events(
+                session_id,
+                events_from_ocr_lines(session_id, ["莲**：扣头 多大?"], now=now + timedelta(seconds=3)),
+            )
+
+            self.assertEqual(len(repeated), 1)
+            self.assertEqual(repeated[0].id, first[0].id)
+            self.assertEqual(repeated[0].repeat_count, 1)
+        finally:
+            app_state.live_comments.pop(session_id, None)
+
     def test_later_clearer_ocr_publishes_pending_comment_with_nickname(self) -> None:
         from datetime import datetime, timezone
 
@@ -481,7 +1079,7 @@ class LiveCommentOcrTests(unittest.TestCase):
             updated = dedupe_live_comment_events(session_id, clearer)
 
             self.assertEqual(len(updated), 1)
-            self.assertEqual(updated[0].customer_nickname, "亮***")
+            self.assertEqual(updated[0].customer_nickname, "亮**")
             self.assertEqual(updated[0].content, "老板挺好的已经干了五六年了")
         finally:
             app_state.live_comments.pop(session_id, None)
@@ -499,7 +1097,7 @@ class LiveCommentOcrTests(unittest.TestCase):
         published = dedupe_live_comment_events("live-noisy-nickname", clearer)
 
         self.assertEqual(len(published), 1)
-        self.assertEqual(published[0].customer_nickname, "用***")
+        self.assertEqual(published[0].customer_nickname, "用**")
 
     def test_ocr_noise_is_removed_from_masked_nickname_prefixes(self) -> None:
         from datetime import datetime, timezone
@@ -513,8 +1111,75 @@ class LiveCommentOcrTests(unittest.TestCase):
         )
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].customer_nickname, "可***")
+        self.assertEqual(events[0].customer_nickname, "可**")
 
+    def test_masked_video_account_nickname_keeps_two_stars(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        session_id = "live-masked-name"
+        events = events_from_ocr_lines(
+            session_id,
+            ["L* * 来大漏"],
+            now=datetime(2026, 6, 2, 15, 25, tzinfo=timezone.utc),
+        )
+        published = dedupe_live_comment_events(session_id, events)
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].customer_nickname, "L**")
+        self.assertEqual(published[0].content, "来大漏")
+    def test_fan_badge_before_masked_nickname_becomes_tag(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        session_id = "live-fan-badge"
+        events = events_from_ocr_lines(
+            session_id,
+            ["粉丝 L* * 来大漏"],
+            now=datetime(2026, 6, 2, 15, 25, tzinfo=timezone.utc),
+        )
+        published = dedupe_live_comment_events(session_id, events)
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].customer_nickname, "L**")
+        self.assertIn("[粉丝]", published[0].customer_level)
+        self.assertEqual(published[0].content, "来大漏")
+
+    def test_compact_badges_and_masked_nickname_use_display_format(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        session_id = "live-compact-tags"
+        events = events_from_ocr_lines(
+            session_id,
+            ["+5粉丝鹅*大高货"],
+            now=datetime(2026, 6, 2, 15, 58, 26, tzinfo=timezone.utc),
+        )
+        published = dedupe_live_comment_events(session_id, events)
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(f"{published[0].customer_level}{published[0].customer_nickname}", "[+5][粉丝]鹅**")
+        self.assertEqual(published[0].content, "大高货")
+
+    def test_single_star_masked_nickname_normalizes_to_two_stars(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        session_id = "live-single-star-name"
+        events = events_from_ocr_lines(
+            session_id,
+            ["鹅* 来大漏"],
+            now=datetime(2026, 6, 2, 15, 25, tzinfo=timezone.utc),
+        )
+        published = dedupe_live_comment_events(session_id, events)
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].customer_nickname, "鹅**")
+        self.assertEqual(published[0].content, "来大漏")
     def test_ocr_errors_are_sanitized_before_logging(self) -> None:
         from app.services.live_comment_service import sanitize_ocr_error
 
@@ -530,3 +1195,9 @@ class LiveCommentOcrTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+
+
+

@@ -1,0 +1,30 @@
+{
+  "model": "D:\\JLAO\\models\\jade-yolo.pt",
+  "dataset": "D:\\JLAO\\data\\jade_bangle_composite_200_v2",
+  "split": "test",
+  "images": 50,
+  "detected_images": 50,
+  "hit_iou50_images": 41,
+  "hit_iou50_rate": 0.82,
+  "top_conf": {
+    "mean": 0.0098,
+    "median": 0.008,
+    "min": 0.0064,
+    "max": 0.0559,
+    "p10": 0.007,
+    "p90": 0.0119
+  },
+  "matched_iou50_conf": {
+    "mean": 0.0071,
+    "median": 0.0064,
+    "min": 0.001,
+    "max": 0.0559,
+    "p10": 0.0011,
+    "p90": 0.011
+  },
+  "top_conf_ge_050_rate": 0.0,
+  "top_conf_ge_080_rate": 0.0,
+  "matched_conf_ge_080_rate": 0.0,
+  "csv": "D:\\JLAO\\runs\\jade-yolo-confidence\\baseline-jade-yolo-test\\predictions.csv",
+  "preview": "D:\\JLAO\\runs\\jade-yolo-confidence\\baseline-jade-yolo-test\\preview_contact_sheet.jpg"
+}

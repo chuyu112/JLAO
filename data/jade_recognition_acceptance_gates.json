@@ -1,0 +1,70 @@
+{
+  "objective": "多模态翡翠图像识别，输出颜色、种水、样式、题材",
+  "required_attributes": ["color", "water", "style", "theme"],
+  "offline_gates": [
+    {
+      "name": "offline-gate-runner",
+      "purpose": "一条命令运行文本识别、VLM/YOLO 解析、融合和固定样例验收",
+      "evidence": [
+        "scripts/check_jade_recognition_offline_gates.py",
+        "scripts/check_jade_recognition_offline_gates.ps1"
+      ]
+    },
+    {
+      "name": "text-recognition",
+      "purpose": "中文描述、OCR、主播话术必须能提取颜色/种水/样式/题材",
+      "evidence": "backend/tests/test_jade_text_recognition.py"
+    },
+    {
+      "name": "vlm-and-yolo-parsing",
+      "purpose": "VLM JSON/纯文本输出和 YOLO 标签必须归一化到标准翡翠字段",
+      "evidence": "backend/tests/test_jade_model_parsing.py"
+    },
+    {
+      "name": "offline-examples",
+      "purpose": "固定离线样例必须全部匹配预期属性",
+      "evidence": [
+        "data/jade_recognition_examples.jsonl",
+        "scripts/check_jade_recognition_examples.py",
+        "backend/tests/test_jade_recognition_examples_checker.py"
+      ]
+    }
+  ],
+  "runtime_gates": [
+    {
+      "name": "manifest-readiness",
+      "purpose": "真实图片评估前，标注清单必须包含图片路径和 color/water/style/theme 标签，且图片文件存在",
+      "evidence": "scripts/check_jade_manifest_readiness.ps1"
+    },
+    {
+      "name": "api-batch-recognition",
+      "purpose": "前端/API 必须能上传多张图片并返回每张图片的四类字段、置信度、来源和复核标记",
+      "evidence": [
+        "scripts/create_jade_smoke_images.py",
+        "scripts/create_jade_smoke_images.ps1",
+        "scripts/check_jade_batch_api.py",
+        "scripts/check_jade_batch_api.ps1",
+        "Manual or automated browser run against /jade-recognition"
+      ]
+    },
+    {
+      "name": "real-image-evaluation",
+      "purpose": "真实翡翠图片样本必须完成模型/启发式/VLM 输出评估，不能只依赖离线文本样例",
+      "evidence": [
+        "scripts/jade.ps1 evaluate or predict-manifest output on a labeled image manifest",
+        "scripts/check_jade_prediction_results.py",
+        "scripts/check_jade_prediction_results.ps1"
+      ]
+    },
+    {
+      "name": "feedback-training-loop",
+      "purpose": "人工修正后的颜色/种水/样式/题材必须能保存、导出、按 batch_id 追踪并进入训练清单",
+      "evidence": [
+        "scripts/check_jade_feedback_readiness.py",
+        "scripts/check_jade_feedback_readiness.ps1",
+        "feedback batch trace plus train-batch-feedback dry-run or training run output"
+      ]
+    }
+  ],
+  "completion_rule": "Only mark complete after all offline gates pass and runtime gates are proven with current command output or rendered/API evidence."
+}

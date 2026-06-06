@@ -1,0 +1,45 @@
+{
+  "output_dir": "D:\\JLAO\\data\\jade_bangle_combined_training_420",
+  "total_images": 420,
+  "split_counts": {
+    "train": 330,
+    "val": 40,
+    "test": 50
+  },
+  "datasets": [
+    {
+      "slug": "composite_v2",
+      "root": "data\\jade_bangle_composite_200_v2",
+      "splits": [
+        "train",
+        "val",
+        "test"
+      ]
+    },
+    {
+      "slug": "liveroom_100",
+      "root": "data\\generated_jade_bangle_liveroom_100",
+      "splits": [
+        "train",
+        "val"
+      ]
+    },
+    {
+      "slug": "low_conf_100",
+      "root": "data\\jade_low_conf_typical_aug_100",
+      "splits": [
+        "train",
+        "val"
+      ]
+    },
+    {
+      "slug": "real_bmp_20",
+      "root": "data\\real_bangle_bmp_ai20",
+      "splits": [
+        "train"
+      ]
+    }
+  ],
+  "dataset_yaml": "D:\\JLAO\\data\\jade_bangle_combined_training_420\\dataset.yaml",
+  "manifest": "D:\\JLAO\\data\\jade_bangle_combined_training_420\\manifest.csv"
+}

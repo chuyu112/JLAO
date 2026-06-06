@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  # JLAO 后端服务（GPU 版本）
+  jlao-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jlao-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./backend/app:/app/app
+      - ./data:/app/data
+      - jlao-models:/root/.cache/modelscope
+      - jlao-paddle:/root/.paddleocr
+    environment:
+      - FUNASR_DEVICE=cuda
+      - PADDLEOCR_USE_GPU=true
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - jlao-network
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: jlao-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./deploy/nginx-jlao.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./data/nginx-logs:/var/log/nginx
+    depends_on:
+      - jlao-backend
+    networks:
+      - jlao-network
+
+  # PostgreSQL 数据库（可选，如果使用本地数据库）
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: jlao-postgres
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     POSTGRES_USER: jlao
+  #     POSTGRES_PASSWORD: jlao_password
+  #     POSTGRES_DB: jlao
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   networks:
+  #     - jlao-network
+
+volumes:
+  jlao-models:
+    driver: local
+  jlao-paddle:
+    driver: local
+  # postgres-data:
+  #   driver: local
+
+networks:
+  jlao-network:
+    driver: bridge

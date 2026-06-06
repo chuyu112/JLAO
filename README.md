@@ -10,8 +10,111 @@ Jade Live AI Optimizer（JLAO）是一个面向翡翠直播间的实时 AI 场�
 前端：Vue 3 + Vite + TypeScript + Pinia + Naive UI
 后端：Python + FastAPI + SQLAlchemy + PostgreSQL + WebSocket
 视频处理：FFmpeg + OpenCV + Pillow
-AI：大模型 API + 中文角色提示词
+AI：FunASR + PaddleOCR + 大模型 API
 ```
+
+## 🚀 快速开始
+
+### 本地开发（GPU 加速）
+
+```bash
+# 1. 创建 Conda 环境
+conda create -n jlao python=3.11 -y
+conda activate jlao
+
+# 2. 安装依赖（GPU 版本）
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install funasr paddlepaddle-gpu==2.6.2 paddleocr==2.9.1
+pip install -r backend/requirements.txt
+
+# 3. 启动后端
+cd backend
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+
+# 4. 启动前端（另开终端）
+cd frontend
+npm install
+npm run dev
+```
+
+### 服务器部署
+
+```bash
+# 上传发布包到服务器
+scp jlao-release.tar.gz root@47.120.41.143:/tmp/
+
+# 在服务器上执行安装
+ssh root@47.120.41.143
+bash /tmp/jlao-release/deploy/server-install.sh
+```
+
+## 📁 项目结构
+
+```text
+JLAO/
+├── backend/              # 后端代码
+│   ├── app/             # FastAPI 应用
+│   ├── requirements.txt # Python 依赖
+│   └── .venv/           # 虚拟环境
+├── frontend/            # 前端代码
+│   └── dist/           # 构建产物
+├── deploy/              # 部署脚本
+├── Dockerfile           # Docker 配置
+├── docker-compose.yml   # Docker Compose 配置
+├── docker-run.bat       # Docker 启动脚本
+├── setup-env.bat        # 环境配置脚本
+├── deploy-server.bat    # 服务器部署脚本
+├── SETUP.md             # 换电脑部署指南
+└── DOCKER.md            # Docker 部署指南
+```
+
+## 🛠️ 技术栈
+
+| 组件 | 技术 |
+|---|---|
+| 后端 | FastAPI + Python 3.11 |
+| 前端 | Vue.js + TypeScript |
+| 语音识别 | FunASR (GPU) |
+| OCR | PaddleOCR (GPU) |
+| 数据库 | PostgreSQL |
+| 部署 | Nginx + Systemd |
+
+## 📚 文档
+
+- [换电脑部署指南](SETUP.md) - 新电脑快速部署
+- [Docker 部署指南](DOCKER.md) - Docker 方式部署
+- [服务器部署](deploy-server.bat) - 服务器部署脚本
+
+## 📝 环境变量
+
+复制 `.env.example` 到 `.env` 并配置：
+
+```env
+# GPU 加速
+FUNASR_DEVICE=cuda
+PADDLEOCR_USE_GPU=true
+
+# API 密钥
+ALIYUN_AK_ID=your_key
+ALIYUN_AK_SECRET=your_secret
+```
+
+## 🆘 常见问题
+
+### 换电脑后如何快速部署？
+
+1. 克隆代码仓库
+2. 按照 [SETUP.md](SETUP.md) 安装依赖
+3. 复制 `.env` 配置文件
+4. 启动服务
+
+### 如何备份模型？
+
+模型缓存目录：
+- FunASR: `~/.cache/modelscope/`
+- PaddleOCR: `~/.paddleocr/`
+
+复制这些目录到新电脑即可。
 
 ## 当前 MVP 闭环
 
@@ -68,7 +171,7 @@ Windows 快速启动：
 .\capture-helper\start-helper.ps1
 ```
 
-浏览器抽帧黑屏时，启动本地截屏助手，然后在 JLAO 页面点击“本地助手截一次”。自动连续截图暂时关闭，避免误采集。
+浏览器抽帧黑屏时，启动本地截屏助手，然后在 JLAO 页面点击"本地助手截一次"。自动连续截图暂时关闭，避免误采集。
 
 部署到服务器：
 

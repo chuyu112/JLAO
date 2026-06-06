@@ -1,0 +1,6 @@
+path: D:/JLAO/backend/data/jade_real_only
+train: images/train
+val: images/val
+nc: 1
+names:
+  0: jade

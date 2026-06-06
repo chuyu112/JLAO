@@ -1,0 +1,5 @@
+path: D:/JLAO/data/jade_low_conf_typical_aug_300
+train: images/train
+val: images/val
+names:
+  0: jade_bangle

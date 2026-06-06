@@ -1,0 +1,43 @@
+{
+  "output_dir": "D:\\JLAO\\data\\jade_bangle_composite_200",
+  "total": 200,
+  "splits": {
+    "test": 50,
+    "train": 130,
+    "val": 20
+  },
+  "colors": {
+    "apple_green": 20,
+    "bean_green": 20,
+    "black_ink": 20,
+    "blue_water": 20,
+    "dark_green": 20,
+    "icy_white": 20,
+    "imperial_green": 20,
+    "lavender_purple": 20,
+    "white_green_flower": 20,
+    "yellow_honey": 20
+  },
+  "test_colors": {
+    "apple_green": 6,
+    "bean_green": 5,
+    "black_ink": 4,
+    "blue_water": 4,
+    "dark_green": 5,
+    "icy_white": 4,
+    "imperial_green": 6,
+    "lavender_purple": 4,
+    "white_green_flower": 6,
+    "yellow_honey": 6
+  },
+  "quality": {
+    "min": 62.091,
+    "max": 96.435,
+    "avg": 81.398,
+    "test_avg": 88.129
+  },
+  "dataset_yaml": "D:\\JLAO\\data\\jade_bangle_composite_200\\dataset.yaml",
+  "manifest": "D:\\JLAO\\data\\jade_bangle_composite_200\\manifest.csv",
+  "preview_test": "D:\\JLAO\\data\\jade_bangle_composite_200\\preview_test_50.jpg",
+  "preview_train_sample": "D:\\JLAO\\data\\jade_bangle_composite_200\\preview_train_sample_50.jpg"
+}

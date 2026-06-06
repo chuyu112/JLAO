@@ -1,0 +1,5 @@
+image,prediction_count,top_conf,top_cls,top_iou,best_iou,best_iou_conf,hit_iou50
+data/real_bangle_bmp_ai20/images/val/real_bangle_bmp_ai20_003.jpg,5,0.992914,0,0.989276,0.989276,0.992914,True
+data/real_bangle_bmp_ai20/images/val/real_bangle_bmp_ai20_008.jpg,3,0.991983,0,0.985505,0.985505,0.991983,True
+data/real_bangle_bmp_ai20/images/val/real_bangle_bmp_ai20_014.jpg,3,0.98943,0,0.986492,0.986492,0.98943,True
+data/real_bangle_bmp_ai20/images/val/real_bangle_bmp_ai20_020.jpg,6,0.981187,0,0.986466,0.986466,0.981187,True

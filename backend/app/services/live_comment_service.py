@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import hashlib
 import io
 import json
@@ -16,7 +16,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-from app.schemas import VirtualCustomerEvent
+from app.repositories import save_capture_archive, save_virtual_customer_event
+from app.schemas import CaptureArchiveItem, VirtualCustomerEvent
 from app.services.live_room_profile_service import live_badge_catalog
 from app.state import app_state
 from app.ws.manager import manager
@@ -24,16 +25,15 @@ from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
 
-# RapidOCR 配置
-RAPIDOCR_AVAILABLE = False
+# PaddleOCR 配置
+PADDLEOCR_AVAILABLE = False
 try:
-    from rapidocr import RapidOCR
-    _rapidocr_engine = RapidOCR()
-    RAPIDOCR_AVAILABLE = True
-    logger.info("RapidOCR 已加载")
+    from app.services.paddleocr_service import recognize_with_paddleocr
+    PADDLEOCR_AVAILABLE = True
+    logger.info("PaddleOCR 已加载")
 except ImportError:
-    logger.warning("RapidOCR 未安装，使用 fallback OCR")
-    _rapidocr_engine = None
+    logger.warning("PaddleOCR 未安装")
+    recognize_with_paddleocr = None  # type: ignore[assignment]
 
 ALIYUN_OCR_AK_ID = os.getenv("ALIYUN_AK_ID") or os.getenv("ALIYUN_ACCESS_KEY_ID", "")
 ALIYUN_OCR_AK_SECRET = os.getenv("ALIYUN_AK_SECRET") or os.getenv("ALIYUN_ACCESS_KEY_SECRET", "")
@@ -43,6 +43,7 @@ COMMENT_OCR_INTERVAL_SECONDS = float(os.getenv("JLAO_COMMENT_OCR_INTERVAL_SECOND
 MAX_LIVE_COMMENTS_PER_SESSION = 200
 MAX_SEEN_SIGNATURES_PER_SESSION = 600
 MAX_PENDING_COMMENT_EVENTS_PER_SESSION = 200
+UNKNOWN_COMMENTER_NICKNAME = ""
 
 _session_ocr_locks: dict[str, asyncio.Lock] = {}
 _session_last_ocr_at: dict[str, float] = {}
@@ -59,7 +60,7 @@ MAX_FRAME_CACHE_SIZE = 5
 # 同一帧多次 OCR 配置
 MAX_OCR_RETRIES_PER_VARIANT = 5
 
-_BADGE_LABELS = ("资深买家", "粉丝团", "管理员", "【主播】", "[主播]", "主播", "粉丝", "新粉", "铁粉", "灯牌", "观众")
+_BADGE_LABELS = ("资深买家", "粉丝团", "管理员", "【主播】", "[主播]", "主播", "粉丝", "新粉", "铁粉", "灯牌", "观众", "资深买家", "粉丝团", "管理员", "【主播】", "[主播]", "主播", "粉丝", "新粉", "铁粉", "灯牌", "观众")
 _CONTRIBUTION_PREFIX_PATTERN = re.compile(r"^(?:\+|＋)\s*\d{1,3}\s*")
 _LIGHT_BADGE_OCR_LEVEL_PREFIX = r"(?:\d{1,3}|[零一二三四五六七八九十几]{1,3})?"
 _LIGHT_BADGE_OCR_LEVEL_TEXT = r"(?:\d{1,3}|[零一二三四五六七八九十几]{1,3})"
@@ -93,7 +94,7 @@ _CUSTOM_BADGE_PREFIX_PATTERN = re.compile(rf"^(?:{_CUSTOM_LIGHT_BADGE_TEXT}\s*)"
 _BADGE_PATTERN = re.compile(rf"^(?:{'|'.join(re.escape(label) for label in _BADGE_LABELS)})\s*")
 _NOISY_MASKED_NICKNAME_PREFIX_PATTERN = re.compile(r"^的(?=[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff.-]*\*{1,3})")
 _NOISY_LATIN_MASKED_NICKNAME_PREFIX_PATTERN = re.compile(r"^[\u4e00-\u9fff](?=[A-Za-z][A-Za-z0-9_.-]*\*{1,3}$)")
-_FAN_TAGS = {"粉丝", "新粉", "铁粉", "粉丝团"}
+_FAN_TAGS = {"粉丝", "新粉", "铁粉", "粉丝团", "粉丝", "新粉", "铁粉", "粉丝团"}
 _COMMENT_SPLIT_PATTERN = re.compile(r"^(.{1,20}?)[：:]\s*(.{2,})$")
 _BADGED_PREFIX_TOKEN_PATTERN = (
     rf"(?:(?:{'|'.join(re.escape(label) for label in _BADGE_LABELS)})|(?:\+|＋)\s*\d{{1,3}}|{_CUSTOM_LIGHT_BADGE_TEXT})"
@@ -226,6 +227,8 @@ async def process_live_comments_from_frame(session_id: str, image_path: Path) ->
                 comments[existing_index] = event
             else:
                 comments.insert(0, event)
+            save_virtual_customer_event(event)
+            _archive_live_comment_event(event)
             await manager.broadcast(session_id, "live_comment_event", event.model_dump(mode="json"))
         del comments[MAX_LIVE_COMMENTS_PER_SESSION:]
         return events
@@ -245,17 +248,17 @@ async def recognize_comment_lines(image_path: Path) -> list[str]:
 
 
 async def _recognize_all_with_windows(image_variants: list[bytes]) -> tuple[list[str], bool]:
-    """用 RapidOCR / Tesseract / Windows OCR 识别所有 variant，返回 (结果, 是否成功)。"""
+    """用 PaddleOCR / Tesseract / Windows OCR 识别所有 variant，返回 (结果, 是否成功)。"""
     all_lines: list[str] = []
 
-    # 优先使用 RapidOCR（准确率最高）
-    if RAPIDOCR_AVAILABLE:
+    # 优先使用 PaddleOCR（中文识别准确率最高）
+    if PADDLEOCR_AVAILABLE:
         for image_bytes in image_variants:
             try:
-                lines = await asyncio.to_thread(_recognize_with_rapidocr, image_bytes)
+                lines = await asyncio.to_thread(_recognize_with_paddleocr, image_bytes)
                 all_lines.extend(lines)
             except Exception as exc:
-                logger.debug("RapidOCR failed: %s", str(exc))
+                logger.debug("PaddleOCR failed: %s", str(exc))
         if all_lines:
             return all_lines, True
 
@@ -312,7 +315,7 @@ def events_from_ocr_lines(
         event_key = f"{session_id}|{nickname}|{content}|{created_at.isoformat()}|{len(events)}"
         event_id = f"lcomm-{hashlib.sha1(event_key.encode('utf-8')).hexdigest()[:12]}"
         customer_id = f"live-{hashlib.sha1(nickname.encode('utf-8')).hexdigest()[:10]}" if nickname else "live-pending"
-        customer_level = " · ".join(customer_tags) if customer_tags else "真实弹幕"
+        customer_level = "".join(customer_tags) if customer_tags else ""
         events.append(
             VirtualCustomerEvent(
                 id=event_id,
@@ -339,11 +342,15 @@ def dedupe_live_comment_events(session_id: str, events: Iterable[VirtualCustomer
     fresh: list[VirtualCustomerEvent] = []
 
     for event in events:
+        is_content_only = _is_publishable_content_only_live_comment(event)
+        if is_content_only:
+            event = _with_unknown_commenter(event)
+
         if not _is_publishable_live_comment(event):
             _remember_pending_live_comment(session_id, event)
             continue
 
-        pending_event = _find_pending_live_comment(session_id, event)
+        pending_event = None if is_content_only else _find_pending_live_comment(session_id, event)
         if pending_event:
             _remove_pending_live_comment(session_id, pending_event)
             refined_event = _refine_existing_live_comment(pending_event, event) or event
@@ -359,9 +366,13 @@ def dedupe_live_comment_events(session_id: str, events: Iterable[VirtualCustomer
             refined_event = _refine_existing_live_comment(existing_event, event) if existing_event else None
             if refined_event:
                 fresh.append(refined_event)
+            if is_content_only:
+                _remember_pending_live_comment(session_id, event)
             continue
         _mark_comment_seen(event, seen, order, seen_texts)
         fresh.append(event)
+        if is_content_only:
+            _remember_pending_live_comment(session_id, event)
 
     while len(order) > MAX_SEEN_SIGNATURES_PER_SESSION:
         stale = order.pop(0)
@@ -474,36 +485,22 @@ def _recognize_with_tesseract(image_bytes: bytes) -> list[str]:
                 pass
 
 
-def _recognize_with_rapidocr(image_bytes: bytes) -> list[str]:
-    """使用 RapidOCR 识别图片中的文字。"""
-    if not RAPIDOCR_AVAILABLE or _rapidocr_engine is None:
-        raise RuntimeError("RapidOCR 未安装")
+def _recognize_with_paddleocr(image_bytes: bytes) -> list[str]:
+    """使用 PaddleOCR 识别图片中的文字。"""
+    if not PADDLEOCR_AVAILABLE or recognize_with_paddleocr is None:
+        raise RuntimeError("PaddleOCR 未安装")
 
     try:
         from PIL import Image
-        import numpy as np
     except ImportError:
-        raise RuntimeError("Pillow 未安装，无法使用 RapidOCR")
+        raise RuntimeError("Pillow 未安装，无法使用 PaddleOCR")
 
     try:
-        # 将 bytes 转为 PIL Image
-        image = Image.open(io.BytesIO(image_bytes))
-        # 转为 numpy array
-        img_array = np.array(image)
-        # 使用 RapidOCR 识别
-        result, _ = _rapidocr_engine(img_array)
-        if not result:
-            return []
-        # 提取文字
-        lines = []
-        for item in result:
-            if item:
-                text = item[1] if len(item) > 1 else str(item)
-                if text:
-                    lines.append(text)
+        # 使用 PaddleOCR 识别
+        lines = recognize_with_paddleocr(image_bytes)
         return lines
     except Exception as exc:
-        raise RuntimeError(f"RapidOCR 识别失败：{exc}") from exc
+        raise RuntimeError(f"PaddleOCR 识别失败：{exc}") from exc
 
 
 def _recognize_general_with_aliyun(image_bytes: bytes) -> dict[str, Any]:
@@ -594,6 +591,9 @@ def _parse_comment_line(raw_line: str) -> tuple[str, str, str, list[str]] | None
     has_comment_marker = "：" in line or ":" in line
     is_badged_line = bool(_BADGED_LINE_PATTERN.match(line))
     is_masked_line = bool(_MASKED_NICKNAME_PATTERN.match(line))
+    compact_prefix_parse = _parse_compact_badged_masked_comment(line)
+    if compact_prefix_parse:
+        return compact_prefix_parse
     if not has_comment_marker and not is_badged_line and not is_masked_line:
         if _looks_like_content_only_comment(line):
             return "", _clean_content(line), "弹幕", []
@@ -627,6 +627,23 @@ def _parse_comment_line(raw_line: str) -> tuple[str, str, str, list[str]] | None
     return nickname, content, "弹幕", customer_tags
 
 
+def _parse_compact_badged_masked_comment(line: str) -> tuple[str, str, str, list[str]] | None:
+    badge_text = "|".join(re.escape(label) for label in ("粉丝团", "粉丝", "新粉", "铁粉"))
+    match = re.match(
+        rf"^((?:(?:\+|＋)\s*\d{{1,3}}\s*)?(?:(?:{badge_text})\s*)?)"
+        rf"([A-Za-z0-9_\u4e00-\u9fff.-]\*{{1,3}})(.{{2,}})$",
+        line,
+    )
+    if not match or not match.group(1):
+        return None
+
+    nickname, customer_tags = _extract_nickname_tags(f"{match.group(1)}{match.group(2)}")
+    content = _clean_content(match.group(3))
+    if not nickname or not _is_valid_comment_content(content):
+        return None
+    return nickname, content, "弹幕", customer_tags
+
+
 def _extract_nickname_tags(value: str) -> tuple[str, list[str]]:
     nickname = _clean_line(value)
     customer_tags: list[str] = []
@@ -636,6 +653,7 @@ def _extract_nickname_tags(value: str) -> tuple[str, list[str]]:
 
         contribution_match = _CONTRIBUTION_PREFIX_PATTERN.match(nickname)
         if contribution_match:
+            _append_customer_tag(customer_tags, _format_customer_tag(re.sub(r"\s+", "", contribution_match.group(0))))
             nickname = nickname[contribution_match.end() :].strip()
             continue
 
@@ -649,11 +667,11 @@ def _extract_nickname_tags(value: str) -> tuple[str, list[str]]:
         if light_badge_match:
             compact_match = _CUSTOM_LIGHT_BADGE_WITH_NICKNAME_PATTERN.match(nickname)
             if compact_match:
-                _append_customer_tag(customer_tags, "粉丝")
+                _append_customer_tag(customer_tags, _format_customer_tag("粉丝"))
                 _append_customer_tag(customer_tags, _format_light_badge_tag(compact_match.group(1)))
                 nickname = compact_match.group(2).strip()
                 continue
-            _append_customer_tag(customer_tags, "粉丝")
+            _append_customer_tag(customer_tags, _format_customer_tag("粉丝"))
             _append_customer_tag(customer_tags, _format_light_badge_tag(light_badge_match.group(1)))
             nickname = nickname[light_badge_match.end() :].strip()
             continue
@@ -670,11 +688,15 @@ def _append_customer_tag(customer_tags: list[str], tag: str) -> None:
 
 
 def _format_customer_tag(label: str) -> str:
+    if label == "粉丝":
+        return "[粉丝]"
     if label == "资深买家":
-        return "资深买家（老客户）"
+        return "[资深买家]"
     if label in {"【主播】", "[主播]"}:
-        return "主播"
-    return label
+        return "[主播]"
+    if label.startswith("+") or label.startswith("＋"):
+        return f"[{label}]"
+    return f"[{label}]"
 
 
 def _format_light_badge_tag(label: str) -> str:
@@ -697,17 +719,20 @@ def _canonical_light_badge_label(label: str) -> str:
 
 
 def _normalize_customer_tags(customer_tags: list[str]) -> list[str]:
-    if any(tag.endswith("（灯牌）") for tag in customer_tags) and not any(tag in _FAN_TAGS for tag in customer_tags):
-        customer_tags.insert(0, "粉丝")
+    fan_tags = _FAN_TAGS | {_format_customer_tag(tag) for tag in _FAN_TAGS}
+    if any(tag.endswith("（灯牌）") for tag in customer_tags) and not any(tag in fan_tags for tag in customer_tags):
+        customer_tags.insert(0, _format_customer_tag("粉丝"))
 
     def tag_rank(tag: str) -> int:
-        if tag in _FAN_TAGS:
+        if tag.startswith("[+") or tag.startswith("[＋"):
             return 0
-        if tag.endswith("（灯牌）") or tag == "灯牌":
+        if tag in fan_tags:
             return 1
-        if tag == "资深买家（老客户）":
+        if tag.endswith("（灯牌）") or tag == "灯牌":
             return 2
-        return 3
+        if tag == "资深买家（老客户）":
+            return 3
+        return 4
 
     return sorted(customer_tags, key=tag_rank)
 
@@ -738,6 +763,7 @@ def _clean_nickname(value: str) -> str:
     nickname = _NOISY_LATIN_MASKED_NICKNAME_PREFIX_PATTERN.sub("", nickname)
     nickname = re.sub(r"[^\w\u4e00-\u9fff*.-]+$", "", nickname)
     nickname = re.sub(r"\s*\*\s*", "*", nickname)
+    nickname = re.sub(r"^([A-Za-z0-9_\u4e00-\u9fff.-])\*{1,3}$", r"\1**", nickname)
     nickname = re.sub(r"^[0-9Oo零一二三四五六七八九十\s·._-]+(?=[A-Za-z\u4e00-\u9fff])", "", nickname)
     nickname = nickname.strip()
     if len(nickname) > 16:
@@ -746,7 +772,12 @@ def _clean_nickname(value: str) -> str:
         return ""
     # OCR 错误纠正：修复常见的 OCR 识别错误
     nickname = _correct_ocr_nickname_errors(nickname)
+    nickname = _normalize_masked_nickname_stars(nickname)
     return nickname
+
+def _normalize_masked_nickname_stars(nickname: str) -> str:
+    return re.sub(r"^([A-Za-z0-9_\u4e00-\u9fff.-])\*{1,3}$", r"\1**", nickname)
+
 
 def _correct_ocr_nickname_errors(nickname: str) -> str:
     """纠正 OCR 识别出的昵称错误。"""
@@ -909,7 +940,34 @@ def _mark_comment_seen(
 def _is_publishable_live_comment(event: VirtualCustomerEvent) -> bool:
     if event.event_type == "关注":
         return bool(event.customer_nickname)
+    if not event.customer_nickname:
+        return _is_publishable_content_only_live_comment(event)
     return _nickname_score(event.customer_nickname) >= 3 and _is_valid_comment_content(event.content)
+
+
+def _is_publishable_content_only_live_comment(event: VirtualCustomerEvent) -> bool:
+    if event.event_type != "弹幕" or event.customer_nickname:
+        return False
+    return _looks_like_publishable_content_only_comment(event.content)
+
+
+def _looks_like_publishable_content_only_comment(content: str) -> bool:
+    cleaned = _clean_content(content)
+    if not _is_valid_comment_content(cleaned):
+        return False
+    if re.search(r"[?？]", cleaned):
+        return True
+    return False
+
+
+def _with_unknown_commenter(event: VirtualCustomerEvent) -> VirtualCustomerEvent:
+    return event.model_copy(
+        update={
+            "customer_id": "live-unknown",
+            "customer_nickname": UNKNOWN_COMMENTER_NICKNAME,
+            "customer_level": "",
+        }
+    )
 
 
 def _remember_pending_live_comment(session_id: str, candidate: VirtualCustomerEvent) -> None:
@@ -961,19 +1019,51 @@ def _refine_existing_live_comment(
     if existing is None:
         return None
 
-    changed = False
+    changed = True
+    is_updated = False
+    existing.repeat_count = 1
+    existing.last_seen_at = candidate.created_at
     if _nickname_score(candidate.customer_nickname) > _nickname_score(existing.customer_nickname):
         existing.customer_nickname = candidate.customer_nickname
         existing.customer_id = candidate.customer_id
-        changed = True
+        is_updated = True
+    if candidate.customer_level and candidate.customer_level != existing.customer_level:
+        existing.customer_level = candidate.customer_level
+        is_updated = True
 
     existing_text = _semantic_comment_text(existing.content)
     candidate_text = _semantic_comment_text(candidate.content)
-    if len(candidate_text) > len(existing_text) and _semantic_texts_are_similar(existing_text, candidate_text):
+    if _nickname_score(candidate.customer_nickname) > 0 and candidate_text and candidate_text != existing_text:
         existing.content = candidate.content
-        changed = True
+        is_updated = True
+    elif len(candidate_text) > len(existing_text) and _semantic_texts_are_similar(existing_text, candidate_text):
+        existing.content = candidate.content
+        is_updated = True
+    if is_updated:
+        existing.is_updated = True
 
     return existing if changed else None
+
+
+def _archive_live_comment_event(event: VirtualCustomerEvent) -> None:
+    save_capture_archive(
+        CaptureArchiveItem(
+            id=f"arch-{event.id}",
+            session_id=event.session_id,
+            artifact_type="text",
+            source="live-comment",
+            content=event.content,
+            metadata={
+                "customer_id": event.customer_id,
+                "customer_nickname": event.customer_nickname,
+                "customer_level": event.customer_level,
+                "event_type": event.event_type,
+                "repeat_count": event.repeat_count,
+                "last_seen_at": event.last_seen_at.isoformat() if event.last_seen_at else "",
+            },
+            created_at=event.created_at,
+        )
+    )
 
 
 def cleanup_session_ocr_cache(session_id: str) -> None:
@@ -1150,3 +1240,5 @@ def _update_ocr_status(session_id: str, **fields: Any) -> None:
     status = app_state.live_comment_ocr_status.setdefault(session_id, {})
     status.update(fields)
     status["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+

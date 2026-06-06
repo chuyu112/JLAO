@@ -1,0 +1,6 @@
+path: D:/JLAO/data/jade_bangle_composite_200
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: jade

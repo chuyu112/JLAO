@@ -51,7 +51,7 @@ defineExpose({
     <div class="scrcpy-status-grid">
       <div>
         <span class="status-label">实时投屏</span>
-        <span>{{ connected ? '运行中' : '随开始手机采集自动尝试' }}</span>
+        <span>{{ connected ? '运行中' : '随采集自动尝试' }}</span>
       </div>
       <div>
         <span class="status-label">画面采样</span>
@@ -63,7 +63,7 @@ defineExpose({
     <div class="scrcpy-native-hint">
       <div class="hint-title">当前模式：一个入口启动手机采集</div>
       <div class="hint-text">
-        顶部“开始手机采集”会统一启动会话、adb 画面采样、音频输入，并尝试打开实时投屏窗口。
+        顶部“采集”会统一启动会话、adb 画面采样、音频输入，并尝试打开实时投屏窗口。
       </div>
     </div>
   </div>

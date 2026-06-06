@@ -1,0 +1,21 @@
+{
+  "settings_version": "0.0.6",
+  "datasets_dir": "D:\\datasets",
+  "weights_dir": "D:\\JLAO\\weights",
+  "runs_dir": "D:\\JLAO\\runs",
+  "uuid": "000c9170a3c4b548e046c82ad6ff60fea82f0ee6a8778d159b8d8b1b6db531c1",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "hub": true,
+  "mlflow": true,
+  "neptune": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

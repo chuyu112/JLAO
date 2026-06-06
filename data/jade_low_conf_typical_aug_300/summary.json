@@ -1,0 +1,32 @@
+{
+  "output_dir": "D:\\JLAO\\data\\jade_low_conf_typical_aug_300",
+  "sources": 10,
+  "variants_per_source": 18,
+  "hard_sample_numbers": [
+    4,
+    9,
+    12
+  ],
+  "hard_extra_variants": 40,
+  "total_images": 300,
+  "train_images": 290,
+  "val_images": 10,
+  "dataset_yaml": "D:\\JLAO\\data\\jade_low_conf_typical_aug_300\\dataset.yaml",
+  "preview": "D:\\JLAO\\data\\jade_low_conf_typical_aug_300\\preview_first_50.jpg",
+  "excluded_sample_numbers": [
+    6,
+    11
+  ],
+  "source_numbers": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    8,
+    9,
+    10,
+    12
+  ]
+}

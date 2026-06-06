@@ -1,0 +1,6 @@
+path: D:/JLAO/data/jade_ai_batch_01_yolo
+train: images/train
+val: images/val
+nc: 1
+names:
+  0: jade

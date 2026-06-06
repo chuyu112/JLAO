@@ -9,6 +9,24 @@ from app.state import app_state
 router = APIRouter()
 
 
+@router.get("/scrcpy/drivers")
+async def get_scrcpy_drivers() -> list[dict[str, str]]:
+    """获取所有可用的 scrcpy 驱动列表。"""
+    return scrcpy_service.get_available_drivers()
+
+
+@router.post("/scrcpy/drivers/select")
+async def select_scrcpy_driver(path: str) -> dict[str, str]:
+    """选择 scrcpy 驱动路径。"""
+    if not path:
+        raise HTTPException(status_code=400, detail="路径不能为空")
+    try:
+        normalized_path = scrcpy_service.set_scrcpy_path(path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "path": normalized_path or ""}
+
+
 @router.post("/sessions/{session_id}/scrcpy/start")
 async def start_scrcpy(session_id: str, payload: ScrcpyStartRequest) -> dict:
     if session_id not in app_state.sessions:

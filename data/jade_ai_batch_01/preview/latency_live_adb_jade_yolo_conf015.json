@@ -1,0 +1,200 @@
+{
+  "summary": {
+    "model": "D:\\JLAO\\models\\jade-yolo.pt",
+    "adb": "D:\\scrcpy-win64-v4.0\\adb.exe",
+    "device": "0",
+    "conf": 0.15,
+    "max_det": 1,
+    "frames": 20,
+    "detected_frames": 0,
+    "capture_mean_ms": 370.181,
+    "decode_mean_ms": 10.542,
+    "yolo_mean_ms": 7.431,
+    "yolo_p95_ms": 11.597,
+    "total_mean_ms": 388.221,
+    "total_p95_ms": 1068.732,
+    "fps_mean": 2.576
+  },
+  "rows": [
+    {
+      "capture_ms": 281.669,
+      "decode_ms": 10.617,
+      "yolo_ms": 6.488,
+      "total_ms": 298.841,
+      "detections": 0,
+      "frame": 4,
+      "warmup": false
+    },
+    {
+      "capture_ms": 330.071,
+      "decode_ms": 13.393,
+      "yolo_ms": 6.683,
+      "total_ms": 350.212,
+      "detections": 0,
+      "frame": 5,
+      "warmup": false
+    },
+    {
+      "capture_ms": 285.341,
+      "decode_ms": 11.086,
+      "yolo_ms": 6.545,
+      "total_ms": 303.039,
+      "detections": 0,
+      "frame": 6,
+      "warmup": false
+    },
+    {
+      "capture_ms": 330.945,
+      "decode_ms": 11.694,
+      "yolo_ms": 6.357,
+      "total_ms": 349.058,
+      "detections": 0,
+      "frame": 7,
+      "warmup": false
+    },
+    {
+      "capture_ms": 301.602,
+      "decode_ms": 10.214,
+      "yolo_ms": 6.438,
+      "total_ms": 318.32,
+      "detections": 0,
+      "frame": 8,
+      "warmup": false
+    },
+    {
+      "capture_ms": 305.533,
+      "decode_ms": 9.545,
+      "yolo_ms": 6.418,
+      "total_ms": 321.557,
+      "detections": 0,
+      "frame": 9,
+      "warmup": false
+    },
+    {
+      "capture_ms": 296.185,
+      "decode_ms": 9.499,
+      "yolo_ms": 11.597,
+      "total_ms": 317.347,
+      "detections": 0,
+      "frame": 10,
+      "warmup": false
+    },
+    {
+      "capture_ms": 307.505,
+      "decode_ms": 12.088,
+      "yolo_ms": 7.029,
+      "total_ms": 326.685,
+      "detections": 0,
+      "frame": 11,
+      "warmup": false
+    },
+    {
+      "capture_ms": 335.429,
+      "decode_ms": 8.714,
+      "yolo_ms": 6.584,
+      "total_ms": 350.793,
+      "detections": 0,
+      "frame": 12,
+      "warmup": false
+    },
+    {
+      "capture_ms": 319.525,
+      "decode_ms": 12.197,
+      "yolo_ms": 6.398,
+      "total_ms": 338.183,
+      "detections": 0,
+      "frame": 13,
+      "warmup": false
+    },
+    {
+      "capture_ms": 301.203,
+      "decode_ms": 11.286,
+      "yolo_ms": 8.854,
+      "total_ms": 321.409,
+      "detections": 0,
+      "frame": 14,
+      "warmup": false
+    },
+    {
+      "capture_ms": 326.552,
+      "decode_ms": 11.291,
+      "yolo_ms": 11.327,
+      "total_ms": 349.236,
+      "detections": 0,
+      "frame": 15,
+      "warmup": false
+    },
+    {
+      "capture_ms": 314.838,
+      "decode_ms": 9.738,
+      "yolo_ms": 6.943,
+      "total_ms": 331.591,
+      "detections": 0,
+      "frame": 16,
+      "warmup": false
+    },
+    {
+      "capture_ms": 313.354,
+      "decode_ms": 8.673,
+      "yolo_ms": 6.752,
+      "total_ms": 328.847,
+      "detections": 0,
+      "frame": 17,
+      "warmup": false
+    },
+    {
+      "capture_ms": 294.891,
+      "decode_ms": 10.83,
+      "yolo_ms": 9.194,
+      "total_ms": 314.982,
+      "detections": 0,
+      "frame": 18,
+      "warmup": false
+    },
+    {
+      "capture_ms": 308.417,
+      "decode_ms": 9.332,
+      "yolo_ms": 7.699,
+      "total_ms": 325.53,
+      "detections": 0,
+      "frame": 19,
+      "warmup": false
+    },
+    {
+      "capture_ms": 301.928,
+      "decode_ms": 10.625,
+      "yolo_ms": 6.61,
+      "total_ms": 319.229,
+      "detections": 0,
+      "frame": 20,
+      "warmup": false
+    },
+    {
+      "capture_ms": 1053.257,
+      "decode_ms": 8.892,
+      "yolo_ms": 6.518,
+      "total_ms": 1068.732,
+      "detections": 0,
+      "frame": 21,
+      "warmup": false
+    },
+    {
+      "capture_ms": 304.755,
+      "decode_ms": 10.529,
+      "yolo_ms": 6.928,
+      "total_ms": 322.277,
+      "detections": 0,
+      "frame": 22,
+      "warmup": false
+    },
+    {
+      "capture_ms": 790.625,
+      "decode_ms": 10.6,
+      "yolo_ms": 7.267,
+      "total_ms": 808.558,
+      "detections": 0,
+      "frame": 23,
+      "warmup": false
+    }
+  ]
+}

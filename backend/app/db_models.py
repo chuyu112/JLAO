@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,9 +13,12 @@ class ProductRecord(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="在售")  # 在售 / 闲置
     material: Mapped[str] = mapped_column(String(100), default="")
     color: Mapped[str] = mapped_column(String(100), default="")
     water: Mapped[str] = mapped_column(String(100), default="")
+    style: Mapped[str] = mapped_column(String(100), default="")
+    theme: Mapped[str] = mapped_column(String(100), default="")
     size: Mapped[str] = mapped_column(String(255), default="")
     weight: Mapped[str] = mapped_column(String(100), default="")
     certificate: Mapped[str] = mapped_column(String(255), default="")
@@ -24,6 +28,11 @@ class ProductRecord(Base):
     selling_points: Mapped[list[str]] = mapped_column(JSON, default=list)
     faq: Mapped[list[str]] = mapped_column(JSON, default=list)
     recommended_scripts: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_image_paths: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_texts: Mapped[list[str]] = mapped_column(JSON, default=list)
+    analysis_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    attribute_sources: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    fusion_scores: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)
 
 
 class LiveSessionRecord(Base):
@@ -31,6 +40,7 @@ class LiveSessionRecord(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    live_room_name: Mapped[str] = mapped_column(String(255), default="")
     platform: Mapped[str] = mapped_column(String(100), default="未设置")
     anchor_name: Mapped[str] = mapped_column(String(100), default="主播")
     operator_name: Mapped[str] = mapped_column(String(100), default="场控")
@@ -94,6 +104,19 @@ class FrameSnapshotRecord(Base):
     recognized_product_name: Mapped[str] = mapped_column(String(255), default="")
     recognition_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     recognition_source: Mapped[str] = mapped_column(String(100), default="")
+    jade_color: Mapped[str] = mapped_column(String(100), default="")
+    jade_water: Mapped[str] = mapped_column(String(100), default="")
+    jade_style: Mapped[str] = mapped_column(String(100), default="")
+    jade_theme: Mapped[str] = mapped_column(String(100), default="")
+    jade_size: Mapped[str] = mapped_column(String(255), default="")
+    jade_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    jade_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    jade_attribute_sources: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    jade_color_analysis: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    jade_detections: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    jade_ocr_text: Mapped[str] = mapped_column(Text, default="")
+    jade_ocr_lines: Mapped[list[str]] = mapped_column(JSON, default=list)
+    jade_ocr_error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -167,6 +190,21 @@ class VirtualCustomerEventRecord(Base):
     content: Mapped[str] = mapped_column(Text)
     trigger_reason: Mapped[str] = mapped_column(Text, default="")
     priority: Mapped[int] = mapped_column(Integer, default=1)
+    repeat_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaptureArchiveRecord(Base):
+    __tablename__ = "capture_archives"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(50), index=True)
+    source: Mapped[str] = mapped_column(String(100), default="")
+    path: Mapped[str] = mapped_column(Text, default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    item_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

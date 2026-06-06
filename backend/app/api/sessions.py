@@ -22,6 +22,7 @@ async def create_session(payload: LiveSessionCreate) -> LiveSession:
     session = LiveSession(
         id=app_state.new_id("live"),
         title=payload.title,
+        live_room_name=payload.live_room_name.strip(),
         platform=payload.platform,
         anchor_name=payload.anchor_name,
         operator_name=payload.operator_name,
