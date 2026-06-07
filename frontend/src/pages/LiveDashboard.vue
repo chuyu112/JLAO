@@ -164,8 +164,10 @@ async function handleStart() {
     await store.startPhoneCaptureSession()
     await new Promise((resolve) => window.setTimeout(resolve, 1200))
     await store.refreshPhoneCaptureStatus()
-    if (store.scrcpyInfo?.running) {
+    try {
       await store.startNativeSttSession()
+    } catch (e: any) {
+      console.warn('Native STT 启动失败:', e)
     }
 
     const phoneCaptureReady = Boolean(store.phoneCaptureInfo?.running && !store.phoneCaptureInfo?.last_error)
