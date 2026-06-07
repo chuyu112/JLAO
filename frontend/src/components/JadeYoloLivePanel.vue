@@ -185,8 +185,6 @@ async function startCapture(): Promise<boolean> {
       video: {
         displaySurface: 'window',
         frameRate: 30,
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
       } as MediaTrackConstraints,
       audio: {
         echoCancellation: false,

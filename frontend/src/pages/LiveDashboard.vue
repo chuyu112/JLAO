@@ -164,7 +164,9 @@ async function handleStart() {
     await store.startPhoneCaptureSession()
     await new Promise((resolve) => window.setTimeout(resolve, 1200))
     await store.refreshPhoneCaptureStatus()
-    await store.stopNativeSttSession()
+    if (store.scrcpyInfo?.running) {
+      await store.startNativeSttSession()
+    }
 
     const phoneCaptureReady = Boolean(store.phoneCaptureInfo?.running && !store.phoneCaptureInfo?.last_error)
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.services.local_stt_service import LocalChunkStt, LocalSttNotConfigured
 from app.services.scrcpy_service import _get_scrcpy_exe
 from app.services.stt_service import AliyunRealtimeStt
 from app.services.transcript_service import append_transcript
@@ -25,7 +26,7 @@ class NativeSttTaskState:
     chunk_seconds: int
     task: asyncio.Task[None]
     running: bool = True
-    provider: str = "aliyun"
+    provider: str = _NATIVE_STT_PROVIDER
     last_error: str = ""
     audio_chunks: int = 0
     audio_bytes: int = 0
@@ -38,6 +39,13 @@ _ADB_RECONNECT_TIMEOUT_SECONDS = 30.0
 _AUDIO_RESTART_DELAY_SECONDS = 1.0
 native_stt_tasks: dict[str, NativeSttTaskState] = {}
 _DEFAULT_NATIVE_STT_DEVICE_KEY = "__default__"
+_NATIVE_STT_PROVIDER = os.getenv("NATIVE_STT_PROVIDER", os.getenv("STT_PROVIDER", "aliyun")).lower()
+
+
+def _create_native_stt(on_partial, on_final, on_error):
+    if _NATIVE_STT_PROVIDER == "aliyun":
+        return AliyunRealtimeStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
+    return LocalChunkStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
 
 
 async def initialize_native_stt_runtime() -> None:
@@ -104,7 +112,7 @@ def status(session_id: str) -> dict[str, Any]:
         return {
             "running": False,
             "serial": "",
-            "provider": "aliyun",
+            "provider": _NATIVE_STT_PROVIDER,
             "last_error": "",
             "audio_chunks": 0,
             "audio_bytes": 0,
@@ -143,11 +151,11 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
         task_state.last_error = message
         await manager.broadcast(session_id, "stt_error", {"message": message})
 
-    stt = AliyunRealtimeStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
+    stt = _create_native_stt(on_partial=on_partial, on_final=on_final, on_error=on_error)
     try:
         await stt.connect()
         task_state.last_error = ""
-        await manager.broadcast(session_id, "stt_status", {"status": "connected", "provider": "aliyun", "source": "native-scrcpy"})
+        await manager.broadcast(session_id, "stt_status", {"status": "connected", "provider": task_state.provider, "source": "native-scrcpy"})
         await manager.broadcast(session_id, "native_stt_status", status(session_id))
 
         scrcpy_exe = _get_scrcpy_exe()
@@ -207,7 +215,7 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
                 wav_path.unlink(missing_ok=True)
             except OSError:
                 pass
-        await manager.broadcast(session_id, "stt_status", {"status": "closed", "provider": "aliyun", "source": "native-scrcpy"})
+        await manager.broadcast(session_id, "stt_status", {"status": "closed", "provider": task_state.provider, "source": "native-scrcpy"})
 
 
 async def _start_audio_record_process(serial: str, output_path: Path, scrcpy_exe: str | None = None) -> asyncio.subprocess.Process:

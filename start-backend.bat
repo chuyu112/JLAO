@@ -6,6 +6,9 @@ echo.
 
 set BACKEND_DIR=D:\JLAO\backend
 set PORT=8000
+set LOG_DIR=D:\JLAO\logs
+
+if not exist %LOG_DIR% mkdir %LOG_DIR%
 
 cd /d %BACKEND_DIR%
 
@@ -21,8 +24,11 @@ timeout /t 2 /nobreak >nul 2>nul
 echo.
 echo [JLAO] Starting backend...
 echo [JLAO] URL: http://127.0.0.1:%PORT%
+echo [JLAO] Logs: %LOG_DIR%\backend.log
 echo.
 
-python -m uvicorn app.main:app --host 0.0.0.0 --port %PORT%
-
-pause
+:loop
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port %PORT% 2>&1 | powershell -Command "$input | Tee-Object -FilePath '%LOG_DIR%\backend.log' -Append"
+echo [JLAO] Backend exited at %date% %time%, restarting in 3s...
+timeout /t 3 /nobreak >nul 2>nul
+goto loop
