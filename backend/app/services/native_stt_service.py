@@ -18,6 +18,8 @@ from app.ws.manager import manager
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+_NATIVE_STT_PROVIDER = os.getenv("NATIVE_STT_PROVIDER", os.getenv("STT_PROVIDER", "aliyun")).lower()
+
 
 @dataclass
 class NativeSttTaskState:
@@ -39,7 +41,6 @@ _ADB_RECONNECT_TIMEOUT_SECONDS = 30.0
 _AUDIO_RESTART_DELAY_SECONDS = 1.0
 native_stt_tasks: dict[str, NativeSttTaskState] = {}
 _DEFAULT_NATIVE_STT_DEVICE_KEY = "__default__"
-_NATIVE_STT_PROVIDER = os.getenv("NATIVE_STT_PROVIDER", os.getenv("STT_PROVIDER", "aliyun")).lower()
 
 
 def _create_native_stt(on_partial, on_final, on_error):
