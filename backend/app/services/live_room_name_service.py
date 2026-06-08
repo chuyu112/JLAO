@@ -51,23 +51,23 @@ _NOISE_CONTAINS = (
 
 
 async def update_live_room_name_from_frame(session_id: str, image_path: Path) -> str:
-    """更新直播间名称 - 固定为'浅玩翡翠-2号店'"""
-    fixed_name = "浅玩翡翠-2号店"
-
+    """更新直播间名称 - 从截图 OCR 自动识别"""
     session = app_state.sessions.get(session_id)
     if not session:
-        return fixed_name
+        return ""
 
-    # 如果已经是固定名称，直接返回
-    if session.live_room_name == fixed_name:
-        return fixed_name
+    detected = await detect_live_room_name_from_frame(image_path)
+    if not detected:
+        return session.live_room_name
 
-    # 更新为固定名称
-    updated = session.model_copy(update={"live_room_name": fixed_name, "updated_at": datetime.now(timezone.utc)})
+    if session.live_room_name == detected:
+        return detected
+
+    updated = session.model_copy(update={"live_room_name": detected, "updated_at": datetime.now(timezone.utc)})
     app_state.sessions[session_id] = updated
     save_live_session(updated)
     await manager.broadcast(session_id, "session_status", updated.model_dump(mode="json"))
-    return fixed_name
+    return detected
 
 
 async def detect_live_room_name_from_frame(image_path: Path) -> str:

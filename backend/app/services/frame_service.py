@@ -13,7 +13,7 @@ from app.services.product_recognition_service import (
 )
 from app.services.live_comment_service import process_live_comments_from_frame
 from app.services.live_room_name_service import update_live_room_name_from_frame
-from app.repositories import save_capture_archive, save_frame_snapshot, trim_frame_snapshots
+from app.repositories import save_capture_archive, save_frame_snapshot
 from app.state import app_state
 from app.ws.manager import manager
 
@@ -146,7 +146,8 @@ async def create_frame_snapshot(session_id: str, image_path: Path, image_url: st
             created_at=snapshot.created_at,
         )
     )
-    trim_frame_snapshots(session_id, keep=_MAX_FRAMES_PER_SESSION)
+    # NOTE: 不再 trim 数据库，确保所有截图的置信度元数据都被持久化
+    # trim_frame_snapshots(session_id, keep=_MAX_FRAMES_PER_SESSION)
     await manager.broadcast(session_id, "frame_snapshot", snapshot.model_dump(mode="json"))
     asyncio.create_task(update_live_room_name_from_frame(session_id, image_path))
     asyncio.create_task(process_live_comments_from_frame(session_id, image_path))

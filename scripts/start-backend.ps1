@@ -2,9 +2,13 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Backend = Join-Path $Root "backend"
+
+# Conda 环境 Python（新环境）
+$CondaPython = "C:\ProgramData\miniconda3\envs\jlao\python.exe"
+
+# 回退：旧虚拟环境
 $VenvPython = Join-Path $Backend ".venv\Scripts\python.exe"
 $LocalVenvPython = Join-Path $Backend ".venv-local\Scripts\python.exe"
-$Python = $VenvPython
 
 function Test-PythonExecutable {
   param([string]$Path)
@@ -21,24 +25,21 @@ function Test-PythonExecutable {
   return $ExitCode -eq 0
 }
 
-if (Test-Path $VenvPython) {
-  if (-not (Test-PythonExecutable $VenvPython)) {
-    if (Test-PythonExecutable $LocalVenvPython) {
-      Write-Host "Backend .venv Python is broken, using .venv-local." -ForegroundColor Yellow
-      $Python = $LocalVenvPython
-    } else {
-      Write-Host "Backend venv Python is broken, falling back to system Python." -ForegroundColor Yellow
-      $Python = (Get-Command python -ErrorAction Stop).Source
-    }
-  }
+$Python = $null
+
+# 优先使用 Conda 环境
+if (Test-PythonExecutable $CondaPython) {
+  $Python = $CondaPython
+  Write-Host "Using Conda jlao environment." -ForegroundColor Green
+} elseif (Test-PythonExecutable $VenvPython) {
+  $Python = $VenvPython
+  Write-Host "Using backend .venv." -ForegroundColor Yellow
+} elseif (Test-PythonExecutable $LocalVenvPython) {
+  $Python = $LocalVenvPython
+  Write-Host "Using backend .venv-local." -ForegroundColor Yellow
 } else {
-  if (Test-PythonExecutable $LocalVenvPython) {
-    Write-Host "Backend .venv not found, using .venv-local." -ForegroundColor Yellow
-    $Python = $LocalVenvPython
-  } else {
-    Write-Host "Backend venv Python not found, falling back to system Python." -ForegroundColor Yellow
-    $Python = (Get-Command python -ErrorAction Stop).Source
-  }
+  Write-Host "No Python venv found, falling back to system Python." -ForegroundColor Red
+  $Python = (Get-Command python -ErrorAction Stop).Source
 }
 
 Set-Location $Backend

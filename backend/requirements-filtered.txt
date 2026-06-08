@@ -1,0 +1,24 @@
+﻿fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+python-multipart==0.0.20
+python-dotenv==1.0.1
+opencv-python-headless==4.10.0.84
+pillow==11.0.0
+numpy==2.2.1
+httpx==0.28.1
+websockets==16.0
+pyjwt==2.10.1
+bcrypt==4.3.0
+imageio-ffmpeg==0.6.0
+aliyun-python-sdk-core==2.15.1
+
+# 本地语音识别 (FunASR)
+
+# PyTorch GPU 版本 (CUDA 12.8)
+
+# 本地中文 OCR (PaddleOCR)
+
+# 本地图像识别 YOLO；放置 models/jade-yolo.pt 或设置 JLAO_YOLO_MODEL 后启用

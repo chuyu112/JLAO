@@ -81,6 +81,7 @@ const props = defineProps<{
   sessionId: string | null
   sourceActive?: boolean
   sourceBlocked?: boolean
+  nativeSttRunning?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -153,6 +154,7 @@ const detectionLabel = computed(() => {
 
 const audioLabel = computed(() => {
   if (!captureActive.value) return '-'
+  if (props.nativeSttRunning) return 'Native 音频已接入'
   return audioActive.value ? '已接入' : '未共享'
 })
 
@@ -214,9 +216,14 @@ async function startCapture(): Promise<boolean> {
       })
     }
     if (stream.value.getAudioTracks().length) {
-      emit('startStt')
-      await startAudioStreaming(stream.value)
-      audioActive.value = true
+      if (props.nativeSttRunning) {
+        audioActive.value = false
+        message.info('Native 手机音频转写已运行，跳过浏览器音频采集以避免双重识别。')
+      } else {
+        emit('startStt')
+        await startAudioStreaming(stream.value)
+        audioActive.value = true
+      }
     } else {
       audioActive.value = false
       message.warning('视频已接入，但没有拿到主播音频；请在共享弹窗里选择可共享音频的标签页/窗口并勾选音频。')
