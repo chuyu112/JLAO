@@ -93,8 +93,8 @@ const emit = defineEmits<{
 
 const DETECT_INTERVAL_MS = 200
 const MAX_CAPTURE_WIDTH = 1920
-const DISPLAY_CANDIDATE_MIN_CONFIDENCE = 0.3
-const DISPLAY_CONFIRMED_MIN_CONFIDENCE = 0.5
+const DISPLAY_CANDIDATE_MIN_CONFIDENCE = 0.05
+const DISPLAY_CONFIRMED_MIN_CONFIDENCE = 0.15
 
 const message = useMessage()
 const stageRef = ref<HTMLDivElement | null>(null)
@@ -814,8 +814,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: #000;
   width: 100%;
-  height: min(80vh, 1080px);
-  min-height: 480px;
+  height: 100%;
 }
 
 .yolo-live-video,

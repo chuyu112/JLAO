@@ -183,8 +183,12 @@ async function handleStart() {
     await store.refreshPhoneCaptureStatus()
     try {
       await store.startNativeSttSession()
+      if (!store.nativeSttInfo?.running) {
+        message.warning(store.sttError || '实时转写未启动，请检查语音识别依赖或配置')
+      }
     } catch (e: any) {
       console.warn('Native STT 启动失败:', e)
+      message.warning(store.sttError || '实时转写未启动，请检查语音识别依赖或配置')
     }
 
     const phoneCaptureReady = Boolean(store.phoneCaptureInfo?.running && !store.phoneCaptureInfo?.last_error)
@@ -256,5 +260,3 @@ function handleProductAnnotated(product: Product) {
   aspect-ratio: auto;
 }
 </style>
-
-

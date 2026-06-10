@@ -11,7 +11,6 @@ from typing import Any
 
 from app.services.local_stt_service import LocalChunkStt, LocalSttNotConfigured
 from app.services.scrcpy_service import _get_scrcpy_exe
-from app.services.stt_service import AliyunRealtimeStt
 from app.services.transcript_service import append_transcript
 from app.state import WORKSPACE_DIR, app_state
 from app.ws.manager import manager
@@ -21,7 +20,7 @@ if sys.platform == "win32":
 
 logger = logging.getLogger(__name__)
 
-_NATIVE_STT_PROVIDER = os.getenv("NATIVE_STT_PROVIDER", os.getenv("STT_PROVIDER", "aliyun")).lower()
+_NATIVE_STT_PROVIDER = "local"
 _NATIVE_STT_AUDIO_SOURCE = os.getenv("NATIVE_STT_AUDIO_SOURCE", "playback").lower()
 
 
@@ -48,8 +47,6 @@ _DEFAULT_NATIVE_STT_DEVICE_KEY = "__default__"
 
 
 def _create_native_stt(on_partial, on_final, on_error):
-    if _NATIVE_STT_PROVIDER == "aliyun":
-        return AliyunRealtimeStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
     return LocalChunkStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
 
 
@@ -251,7 +248,7 @@ async def _start_audio_record_process(serial: str, output_path: Path, scrcpy_exe
 async def _stream_recorded_wav(
     process: asyncio.subprocess.Process,
     wav_path: Path,
-    stt: AliyunRealtimeStt,
+    stt: LocalChunkStt,
     task_state: NativeSttTaskState,
     stderr_messages: list[str],
 ) -> None:
@@ -543,13 +540,12 @@ def _build_audio_record_command(scrcpy_exe: str, serial: str, output_path: Path,
     return command
 
 
-# 阿里云 NLS 建议每帧 20ms：16000Hz * 2 bytes * 0.02s = 640 bytes
-# 本地 STT（FunASR）会自行缓冲，小帧也不会影响。
-_ALIYUN_STT_FRAME_SIZE = 640
+# 20ms PCM16 mono 16k frames keep streaming latency low.
+_LOCAL_STT_FRAME_SIZE = 640
 
 
-async def _send_pcm_frames(stt: AliyunRealtimeStt, pcm: bytes) -> None:
-    frame_size = _ALIYUN_STT_FRAME_SIZE
+async def _send_pcm_frames(stt: LocalChunkStt, pcm: bytes) -> None:
+    frame_size = _LOCAL_STT_FRAME_SIZE
     for offset in range(0, len(pcm), frame_size):
         await stt.send_audio(pcm[offset : offset + frame_size])
 
@@ -569,5 +565,4 @@ def _wav_to_pcm16_mono_16k(path: str) -> bytes:
     if sample_rate != 16000:
         frames, _ = audioop.ratecv(frames, sample_width, 1, sample_rate, 16000, None)
     return frames
-
 

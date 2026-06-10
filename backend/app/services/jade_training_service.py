@@ -66,6 +66,14 @@ THEME_TO_CLASS = {
     "财神": "caishen",
     "龙牌": "dragon_plaque",
     "龙": "dragon_plaque",
+    "龙纹": "dragon_plaque",
+    "生肖龙": "dragon_plaque",
+    "福瓜": "fu_gua",
+    "瓜": "fu_gua",
+    "福豆": "fu_dou",
+    "四季豆": "fu_dou",
+    "豆荚": "fu_dou",
+    "豆子": "fu_dou",
 }
 
 CLASS_TO_ID = {name: index for index, name in enumerate(JADE_YOLO_CLASS_NAMES)}
@@ -442,7 +450,7 @@ def normalize_corrected_training_attributes(corrected: dict[str, Any]) -> dict[s
         if not theme:
             theme = {"龙牌": "龙", "山水牌": "山水", "无事牌": "无事牌"}[style]
         style = "挂件"
-    elif style in {"观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "貔貅"}:
+    elif style in {"观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"}:
         if not theme:
             theme = style
         style = "挂件"
@@ -452,6 +460,8 @@ def normalize_corrected_training_attributes(corrected: dict[str, Any]) -> dict[s
         theme = "山水"
     elif theme == "平安无事牌":
         theme = "无事牌"
+    elif theme in {"四季豆", "豆荚", "豆子"}:
+        theme = "福豆"
     return {"style": style, "theme": theme}
 
 
@@ -612,5 +622,4 @@ def safe_stem(raw: Any) -> str:
     for char in text:
         allowed.append(char if char.isalnum() or char in ("-", "_") else "-")
     return "".join(allowed).strip("-") or "jade-feedback"
-
 

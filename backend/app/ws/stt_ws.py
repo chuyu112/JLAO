@@ -1,18 +1,16 @@
-import os
 import traceback
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from app.auth_utils import decode_access_token
 from app.services.local_stt_service import LocalChunkStt, LocalSttNotConfigured
-from app.services.stt_service import AliyunRealtimeStt, AliyunSttNotConfigured
 from app.services.transcript_service import append_transcript
 from app.state import app_state
 from app.ws.manager import manager
 
 router = APIRouter()
 
-STT_PROVIDER = os.getenv("STT_PROVIDER", "local").lower()
+STT_PROVIDER = "local"
 
 
 @router.websocket("/ws/sessions/{session_id}/stt")
@@ -65,7 +63,7 @@ async def stt_websocket(
                 if audio_chunks == 1 or audio_chunks % 50 == 0:
                     print(f"[stt {session_id}] audio_chunks={audio_chunks} audio_bytes={audio_bytes}", flush=True)
                 await stt.send_audio(audio)
-    except (AliyunSttNotConfigured, LocalSttNotConfigured) as error:
+    except LocalSttNotConfigured as error:
         await _send_stt_error(websocket, str(error))
     except WebSocketDisconnect:
         pass
@@ -82,8 +80,6 @@ async def stt_websocket(
 
 
 def _create_stt(on_partial, on_final, on_error):
-    if STT_PROVIDER == "aliyun":
-        return AliyunRealtimeStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
     return LocalChunkStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
 
 

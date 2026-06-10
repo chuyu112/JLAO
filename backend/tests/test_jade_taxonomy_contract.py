@@ -42,7 +42,7 @@ def test_jade_taxonomy_covers_core_attributes():
     _assert_contains(JADE_COLORS, {"阳绿", "帝王绿", "蓝水", "紫罗兰", "红翡", "白冰"})
     _assert_contains(JADE_WATERS, {"玻璃种", "冰种", "高冰", "糯种", "豆种"})
     _assert_contains(JADE_STYLES, {"手镯", "珠串", "蛋面", "吊坠", "戒指", "牌子", "平安扣", "摆件"})
-    _assert_contains(JADE_THEMES, {"观音", "佛公", "如意", "叶子", "山水", "貔貅", "龙牌", "财神"})
+    _assert_contains(JADE_THEMES, {"观音", "佛公", "如意", "叶子", "山水", "貔貅", "龙牌", "财神", "福瓜", "福豆"})
 
 
 def test_text_recognition_extracts_color_water_style_theme_contract():

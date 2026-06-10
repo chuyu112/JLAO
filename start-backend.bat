@@ -12,7 +12,7 @@ cd /d "%~dp0backend"
 
 echo Killing old backend on port 8000...
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-timeout /t 2 /nobreak >nul
+powershell -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>&1
 
 set "CondaPython=C:\ProgramData\miniconda3\envs\jlao\python.exe"
 set "VenvPython=%~dp0backend\.venv\Scripts\python.exe"
@@ -60,9 +60,32 @@ echo ============================
 echo Python: %Python%
 echo.
 
-"%Python%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-if errorlevel 1 (
+set "BACKEND_LOG=%~dp0backend-runtime.log"
+set "PYTHONFAULTHANDLER=1"
+set "PYTHONUNBUFFERED=1"
+set "OMP_NUM_THREADS=1"
+set "MKL_NUM_THREADS=1"
+set "OPENBLAS_NUM_THREADS=1"
+set "NUMEXPR_NUM_THREADS=1"
+set "KMP_DUPLICATE_LIB_OK=TRUE"
+set "PADDLE_PDX_CACHE_HOME=%~dp0.paddlex"
+set "PADDLE_PDX_CPU_NUM_THREADS=1"
+set "YOLO_CONFIG_DIR=%~dp0.ultralytics"
+set "MPLCONFIGDIR=%~dp0.matplotlib"
+
+echo Writing runtime log to: %BACKEND_LOG%
+echo [%date% %time%] starting backend with %Python%>"%BACKEND_LOG%"
+
+"%Python%" -X faulthandler -m uvicorn app.main:app --host 127.0.0.1 --port 8000 >> "%BACKEND_LOG%" 2>&1
+set "BACKEND_EXIT=%ERRORLEVEL%"
+
+echo.
+echo Backend exited with code %BACKEND_EXIT%.
+echo [%date% %time%] backend exited with code %BACKEND_EXIT%>>"%BACKEND_LOG%"
+
+if not "%BACKEND_EXIT%"=="0" (
     echo.
     echo ERROR: uvicorn failed!
+    echo Runtime log: %BACKEND_LOG%
     pause
 )

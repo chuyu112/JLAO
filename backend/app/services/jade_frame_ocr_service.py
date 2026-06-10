@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.services.live_comment_service import _recognize_all_with_windows, sanitize_ocr_error
+from app.services.live_comment_service import _recognize_all_comment_variants, sanitize_ocr_error
 
 
 JADE_OCR_INTERVAL_SECONDS = float(os.getenv("JLAO_JADE_OCR_INTERVAL_SECONDS", "1.2"))
@@ -122,11 +122,11 @@ async def recognize_jade_frame_ocr_text(session_id: str, image_path: Path) -> di
 
     try:
         image_bytes = image_path.read_bytes()
-        raw_lines, ok = await _recognize_all_with_windows([image_bytes])
+        raw_lines = await _recognize_all_comment_variants([image_bytes])
         lines = filter_jade_ocr_lines(raw_lines)
         result = {
             "source": "frame-ocr",
-            "ok": ok,
+            "ok": bool(raw_lines),
             "cached": False,
             "line_count": len(lines),
             "lines": lines,

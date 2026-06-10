@@ -1,8 +1,10 @@
 import asyncio
 import os
+import threading
 import tempfile
 import wave
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 import numpy as np
 
@@ -27,21 +29,65 @@ LOCAL_STT_ENGINE = os.getenv("LOCAL_STT_ENGINE", "funasr")
 # FunASR 流式模型配置
 FUNASR_STREAMING_MODEL = os.getenv("FUNASR_STREAMING_MODEL", "paraformer-zh-streaming")
 FUNASR_VAD_MODEL = os.getenv("FUNASR_VAD_MODEL", "")  # 流式模式下不用 VAD，避免 start_idx 错误
-FUNASR_PUNC_MODEL = os.getenv("FUNASR_PUNC_MODEL", "ct-punc")
+FUNASR_PUNC_MODEL = os.getenv("FUNASR_PUNC_MODEL", "")
+FUNASR_CHUNK_SIZE = [int(part.strip()) for part in os.getenv("FUNASR_CHUNK_SIZE", "0,10,5").split(",") if part.strip()]
+if len(FUNASR_CHUNK_SIZE) != 3:
+    FUNASR_CHUNK_SIZE = [0, 10, 5]
+FUNASR_ENCODER_CHUNK_LOOK_BACK = int(os.getenv("FUNASR_ENCODER_CHUNK_LOOK_BACK", "4"))
+FUNASR_DECODER_CHUNK_LOOK_BACK = int(os.getenv("FUNASR_DECODER_CHUNK_LOOK_BACK", "1"))
+
+_FUNASR_LOCAL_MODEL_IDS = {
+    "paraformer-zh-streaming": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
+    "ct-punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
+}
 
 # FunASR 分句参数
 LOCAL_STT_FINAL_DELAY_SECONDS = float(os.getenv("LOCAL_STT_FINAL_DELAY_SECONDS", "1.5"))
 LOCAL_STT_MAX_SEGMENT_SECONDS = float(os.getenv("LOCAL_STT_MAX_SEGMENT_SECONDS", "6"))
 LOCAL_STT_SENTENCE_END_PUNCTUATION = os.getenv("LOCAL_STT_SENTENCE_END_PUNCTUATION", "。！？")
+LOCAL_STT_FINAL_ON_PUNCTUATION = os.getenv("LOCAL_STT_FINAL_ON_PUNCTUATION", "").lower() in {"1", "true", "yes"}
 
 
 class LocalSttNotConfigured(RuntimeError):
     pass
 
 
+def _resolve_funasr_model(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        return cleaned
+
+    if Path(cleaned).exists():
+        return cleaned
+
+    model_id = _FUNASR_LOCAL_MODEL_IDS.get(cleaned, cleaned if "/" in cleaned else "")
+    if not model_id:
+        return cleaned
+
+    default_cache = Path(__file__).resolve().parents[3] / "models" / "modelscope"
+    cache_root = Path(os.getenv("MODELSCOPE_CACHE") or default_cache)
+    candidate = cache_root / "models" / Path(*model_id.split("/"))
+    if candidate.exists():
+        return str(candidate)
+    return cleaned
+
+
+def _merge_funasr_text(current: str, incoming: str) -> str:
+    if not incoming:
+        return current
+    if not current:
+        return incoming
+    if incoming == current or current.endswith(incoming):
+        return current
+    if incoming.startswith(current):
+        return incoming
+    return f"{current}{incoming}"
+
+
 class LocalChunkStt:
     _model = None
     _model_lock = asyncio.Lock()
+    _generate_lock = threading.Lock()
 
     def __init__(
         self,
@@ -60,7 +106,7 @@ class LocalChunkStt:
 
         # FunASR streaming state
         self._funasr_cache: dict = {}
-        self._funasr_chunk_samples = 9600  # 600ms @ 16kHz
+        self._funasr_chunk_samples = max(1, FUNASR_CHUNK_SIZE[1]) * 960
         self._silence_timer: asyncio.Task | None = None
         self._max_segment_timer: asyncio.Task | None = None
         self._final_delay_seconds = LOCAL_STT_FINAL_DELAY_SECONDS
@@ -100,7 +146,6 @@ class LocalChunkStt:
             asyncio.create_task(self._transcribe_whisper_chunk(audio))
 
     async def close(self) -> None:
-        self.started = False
         if LOCAL_STT_ENGINE == "funasr":
             self._cancel_silence_timer()
             self._cancel_max_segment_timer()
@@ -111,6 +156,9 @@ class LocalChunkStt:
                 await self._transcribe_funasr_chunk(audio, is_final=True)
             else:
                 await self._transcribe_whisper_chunk(audio)
+        if LOCAL_STT_ENGINE == "funasr":
+            await self._finalize_text()
+        self.started = False
 
     # ---- Timer helpers ----
 
@@ -200,13 +248,17 @@ class LocalChunkStt:
 
         def load_model():
             kwargs = {
-                "model": FUNASR_STREAMING_MODEL,
+                "model": _resolve_funasr_model(FUNASR_STREAMING_MODEL),
                 "device": LOCAL_STT_DEVICE,
+                "disable_update": True,
+                "disable_pbar": True,
+                "log_level": "ERROR",
+                "ncpu": int(os.getenv("FUNASR_NCPU", "1")),
             }
             if FUNASR_VAD_MODEL:
-                kwargs["vad_model"] = FUNASR_VAD_MODEL
+                kwargs["vad_model"] = _resolve_funasr_model(FUNASR_VAD_MODEL)
             if FUNASR_PUNC_MODEL:
-                kwargs["punc_model"] = FUNASR_PUNC_MODEL
+                kwargs["punc_model"] = _resolve_funasr_model(FUNASR_PUNC_MODEL)
             return AutoModel(**kwargs)
 
         try:
@@ -249,14 +301,16 @@ class LocalChunkStt:
             cleaned = text.strip()
 
             if not cleaned:
+                if is_final:
+                    await self._finalize_text()
                 return
 
             # 繁体转简体
             if _t2s_converter:
                 cleaned = _t2s_converter.convert(cleaned)
 
-            self.last_text = cleaned
-            await self.on_partial(cleaned)
+            self.last_text = _merge_funasr_text(self.last_text, cleaned)
+            await self.on_partial(self.last_text)
 
             # 重置静音定时器（有新识别结果，说明还在说话）
             self._reset_silence_timer()
@@ -266,7 +320,7 @@ class LocalChunkStt:
                 self._start_max_segment_timer()
 
             # 句末标点触发 final（仅 。！？，说明一句话结束了）
-            if cleaned and cleaned[-1] in self._sentence_end_punctuation:
+            if LOCAL_STT_FINAL_ON_PUNCTUATION and cleaned and cleaned[-1] in self._sentence_end_punctuation:
                 await self._finalize_text()
 
             # 显式 final（关闭时）
@@ -284,11 +338,15 @@ class LocalChunkStt:
         if model is None:
             raise RuntimeError("FunASR 模型未加载")
 
-        result = model.generate(
-            input=pcm,
-            cache=cache,
-            is_final=is_final,
-        )
+        with cls._generate_lock:
+            result = model.generate(
+                input=pcm,
+                cache=cache,
+                is_final=is_final,
+                chunk_size=FUNASR_CHUNK_SIZE,
+                encoder_chunk_look_back=FUNASR_ENCODER_CHUNK_LOOK_BACK,
+                decoder_chunk_look_back=FUNASR_DECODER_CHUNK_LOOK_BACK,
+            )
 
         text = ""
         if result and len(result) > 0:

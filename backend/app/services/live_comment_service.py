@@ -1,14 +1,11 @@
 ﻿import asyncio
 import hashlib
 import io
-import json
 import logging
 import os
 import re
 import shutil
 import subprocess
-import sys
-import tempfile
 import time
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -35,10 +32,6 @@ except ImportError:
     logger.warning("PaddleOCR 未安装")
     recognize_with_paddleocr = None  # type: ignore[assignment]
 
-ALIYUN_OCR_AK_ID = os.getenv("ALIYUN_AK_ID") or os.getenv("ALIYUN_ACCESS_KEY_ID", "")
-ALIYUN_OCR_AK_SECRET = os.getenv("ALIYUN_AK_SECRET") or os.getenv("ALIYUN_ACCESS_KEY_SECRET", "")
-ALIYUN_OCR_REGION = os.getenv("ALIYUN_OCR_REGION", "cn-hangzhou")
-ALIYUN_OCR_ENDPOINT = os.getenv("ALIYUN_OCR_ENDPOINT", "ocr-api.cn-hangzhou.aliyuncs.com")
 COMMENT_OCR_INTERVAL_SECONDS = float(os.getenv("JLAO_COMMENT_OCR_INTERVAL_SECONDS", "0.5"))
 MAX_LIVE_COMMENTS_PER_SESSION = 200
 MAX_SEEN_SIGNATURES_PER_SESSION = 600
@@ -51,14 +44,9 @@ _seen_comment_signatures: dict[str, set[str]] = {}
 _seen_comment_order: dict[str, list[str]] = {}
 _seen_comment_texts: dict[str, list[str]] = {}
 _pending_comment_events: dict[str, list[VirtualCustomerEvent]] = {}
-_warned_not_configured = False
-
 # 帧级 OCR 结果缓存：session_id -> [(timestamp, lines), ...]
 _frame_ocr_cache: dict[str, list[tuple[float, list[str]]]] = {}
 MAX_FRAME_CACHE_SIZE = 5
-
-# 同一帧多次 OCR 配置
-MAX_OCR_RETRIES_PER_VARIANT = 5
 
 _BADGE_LABELS = ("资深买家", "粉丝团", "管理员", "【主播】", "[主播]", "主播", "粉丝", "新粉", "铁粉", "灯牌", "观众", "资深买家", "粉丝团", "管理员", "【主播】", "[主播]", "主播", "粉丝", "新粉", "铁粉", "灯牌", "观众")
 _CONTRIBUTION_PREFIX_PATTERN = re.compile(r"^(?:\+|＋)\s*\d{1,3}\s*")
@@ -107,44 +95,6 @@ _COMPACT_LIGHT_BADGED_LINE_PATTERN = re.compile(
 )
 _MASKED_NICKNAME_PATTERN = re.compile(r"^([A-Za-z0-9_\u4e00-\u9fff.-]{1,14}\*{1,3})\s+(.{2,})$")
 _SENSITIVE_QUERY_PATTERN = re.compile(r"\b(AccessKeyId|Signature|SignatureNonce)=([^&\s)]+)")
-_WINDOWS_OCR_SCRIPT = r"""
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$Path = $env:JLAO_OCR_IMAGE
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-[Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime] | Out-Null
-[Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType=WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime] | Out-Null
-[Windows.Globalization.Language, Windows.Globalization, ContentType=WindowsRuntime] | Out-Null
-$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-    $_.Name -eq 'AsTask' -and
-    $_.GetParameters().Count -eq 1 -and
-    $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
-})[0]
-function Await($operation, [Type]$resultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($resultType)
-    $task = $asTask.Invoke($null, @($operation))
-    $task.Wait()
-    $task.Result
-}
-$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Path)) ([Windows.Storage.StorageFile])
-$stream = Await ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
-$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$language = [Windows.Globalization.Language]::new('zh-Hans-CN')
-$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($language)
-if ($null -eq $engine) {
-    throw 'Windows OCR zh-Hans-CN recognizer is unavailable'
-}
-$result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-$result.Lines | ForEach-Object {
-    if ($_.Text) {
-        $_.Text
-    }
-}
-"""
 _IGNORE_MARKERS = (
     "江苏健康广播",
     "FM100",
@@ -171,14 +121,6 @@ _IGNORE_MARKERS = (
 )
 
 
-class AliyunOcrNotConfigured(RuntimeError):
-    pass
-
-
-class WindowsOcrUnavailable(RuntimeError):
-    pass
-
-
 async def process_live_comments_from_frame(session_id: str, image_path: Path) -> list[VirtualCustomerEvent]:
     if not _should_scan_now(session_id):
         return []
@@ -195,10 +137,6 @@ async def process_live_comments_from_frame(session_id: str, image_path: Path) ->
 
         try:
             lines = await recognize_comment_lines(image_path)
-        except AliyunOcrNotConfigured as exc:
-            _warn_ocr_not_configured(str(exc))
-            _update_ocr_status(session_id, running=False, last_error=str(exc), last_line_count=0, last_event_count=0)
-            return []
         except Exception as exc:
             error = sanitize_ocr_error(str(exc))
             logger.warning("live comment OCR failed for %s: %s", session_id, error)
@@ -239,19 +177,13 @@ async def recognize_comment_lines(image_path: Path) -> list[str]:
     if not image_variants:
         return []
 
-    # 使用 Windows OCR
-    windows_lines, windows_ok = await _recognize_all_with_windows(image_variants)
-    if windows_ok:
-        return _unique_clean_lines(windows_lines)
-
-    return []
+    return _unique_clean_lines(await _recognize_all_comment_variants(image_variants))
 
 
-async def _recognize_all_with_windows(image_variants: list[bytes]) -> tuple[list[str], bool]:
-    """用 PaddleOCR / Tesseract / Windows OCR 识别所有 variant，返回 (结果, 是否成功)。"""
+async def _recognize_all_comment_variants(image_variants: list[bytes]) -> list[str]:
+    """Recognize comment-region variants with local OCR only."""
     all_lines: list[str] = []
 
-    # 优先使用 PaddleOCR（中文识别准确率最高）
     if PADDLEOCR_AVAILABLE:
         for image_bytes in image_variants:
             try:
@@ -260,9 +192,8 @@ async def _recognize_all_with_windows(image_variants: list[bytes]) -> tuple[list
             except Exception as exc:
                 logger.debug("PaddleOCR failed: %s", str(exc))
         if all_lines:
-            return all_lines, True
+            return all_lines
 
-    # fallback 到 Tesseract OCR（Linux 服务器）
     if shutil.which("tesseract"):
         for image_bytes in image_variants:
             try:
@@ -270,32 +201,7 @@ async def _recognize_all_with_windows(image_variants: list[bytes]) -> tuple[list
                 all_lines.extend(lines)
             except Exception as exc:
                 logger.debug("Tesseract OCR failed: %s", str(exc))
-        if all_lines:
-            return all_lines, True
-
-    # fallback 到 Windows OCR
-    for image_bytes in image_variants:
-        for attempt in range(MAX_OCR_RETRIES_PER_VARIANT):
-            try:
-                lines = await asyncio.to_thread(_recognize_with_windows_ocr, image_bytes)
-                all_lines.extend(lines)
-            except WindowsOcrUnavailable:
-                return all_lines, False
-            except Exception as exc:
-                logger.debug("Windows OCR variant %d attempt %d failed: %s", image_variants.index(image_bytes), attempt, sanitize_ocr_error(str(exc)))
-    return all_lines, bool(all_lines)
-
-
-async def _recognize_with_aliyun_if_configured(image_bytes: bytes) -> tuple[list[str], bool]:
-    """用阿里云 OCR 识别，返回 (结果, 是否成功)。"""
-    try:
-        payload = await asyncio.to_thread(_recognize_general_with_aliyun, image_bytes)
-        return extract_ocr_lines(payload), True
-    except AliyunOcrNotConfigured:
-        return [], False
-    except Exception as exc:
-        logger.debug("阿里云 OCR failed: %s", sanitize_ocr_error(str(exc)))
-        return [], False
+    return all_lines
 
 
 def events_from_ocr_lines(
@@ -382,77 +288,6 @@ def dedupe_live_comment_events(session_id: str, events: Iterable[VirtualCustomer
     return fresh
 
 
-def extract_ocr_lines(payload: dict[str, Any]) -> list[str]:
-    data: Any = payload.get("Data") or payload.get("data") or payload
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except json.JSONDecodeError:
-            data = {"content": data}
-
-    lines: list[str] = []
-    if isinstance(data, dict):
-        content = data.get("content") or data.get("Content") or data.get("text") or ""
-        if isinstance(content, str):
-            lines.extend(_split_ocr_text(content))
-
-        words_info = (
-            data.get("prism_wordsInfo")
-            or data.get("wordsInfo")
-            or data.get("WordsInfo")
-            or data.get("wordInfo")
-            or []
-        )
-        if isinstance(words_info, list):
-            for item in words_info:
-                if not isinstance(item, dict):
-                    continue
-                word = item.get("word") or item.get("text") or item.get("content") or ""
-                if isinstance(word, str):
-                    lines.extend(_split_ocr_text(word))
-
-    return _unique_clean_lines(lines)
-
-
-def _recognize_with_windows_ocr(image_bytes: bytes) -> list[str]:
-    if sys.platform != "win32":
-        raise WindowsOcrUnavailable("Windows OCR 仅支持 Windows 本机")
-
-    powershell_exe = shutil.which("powershell") or r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-    if not Path(powershell_exe).exists():
-        raise WindowsOcrUnavailable("未找到 powershell，无法调用 Windows OCR")
-
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(prefix="jlao-comment-ocr-", suffix=".jpg", delete=False) as temp_file:
-            temp_file.write(image_bytes)
-            temp_path = temp_file.name
-
-        env = dict(os.environ)
-        env["JLAO_OCR_IMAGE"] = temp_path
-        completed = subprocess.run(
-            [powershell_exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", _WINDOWS_OCR_SCRIPT],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=20,
-            env=env,
-            check=False,
-        )
-        if completed.returncode != 0:
-            message = (completed.stderr or completed.stdout or "").strip()
-            raise WindowsOcrUnavailable(message or f"Windows OCR 退出码：{completed.returncode}")
-
-        return [line for line in completed.stdout.splitlines() if line.strip()]
-    finally:
-        if temp_path:
-            try:
-                Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
-
-
 def _recognize_with_tesseract(image_bytes: bytes) -> list[str]:
     """使用 Tesseract OCR 识别图片中的文字。"""
     import tempfile
@@ -501,40 +336,6 @@ def _recognize_with_paddleocr(image_bytes: bytes) -> list[str]:
         return lines
     except Exception as exc:
         raise RuntimeError(f"PaddleOCR 识别失败：{exc}") from exc
-
-
-def _recognize_general_with_aliyun(image_bytes: bytes) -> dict[str, Any]:
-    if not (ALIYUN_OCR_AK_ID and ALIYUN_OCR_AK_SECRET):
-        raise AliyunOcrNotConfigured("阿里云 OCR 未配置：需要 ALIYUN_AK_ID/ALIYUN_AK_SECRET")
-
-    try:
-        from aliyunsdkcore.acs_exception.exceptions import ClientException, ServerException
-        from aliyunsdkcore.client import AcsClient
-        from aliyunsdkcore.http import protocol_type
-        from aliyunsdkcore.request import CommonRequest
-    except ImportError as exc:
-        raise AliyunOcrNotConfigured("缺少 aliyun-python-sdk-core，无法调用阿里云 OCR") from exc
-
-    client = AcsClient(ALIYUN_OCR_AK_ID, ALIYUN_OCR_AK_SECRET, ALIYUN_OCR_REGION)
-    request = CommonRequest()
-    request.set_method("POST")
-    request.set_protocol_type(protocol_type.HTTPS)
-    request.set_domain(ALIYUN_OCR_ENDPOINT)
-    request.set_version("2021-07-07")
-    request.set_action_name("RecognizeGeneral")
-    request.set_content_type("application/octet-stream")
-    request.set_content(image_bytes)
-
-    try:
-        response = client.do_action_with_exception(request)
-    except (ClientException, ServerException) as exc:
-        raise RuntimeError(f"阿里云 OCR 调用失败：{sanitize_ocr_error(str(exc))}") from None
-
-    text = response.decode("utf-8") if isinstance(response, bytes) else response
-    payload = json.loads(text)
-    if payload.get("Code") and payload.get("Code") != "OK":
-        raise RuntimeError(f"阿里云 OCR 响应异常：{payload.get('Code')} {payload.get('Message') or ''}")
-    return payload
 
 
 def _read_comment_region_bytes(image_path: Path) -> bytes:
@@ -1224,14 +1025,6 @@ def _should_scan_now(session_id: str) -> bool:
     return time.monotonic() - last_scan_at >= COMMENT_OCR_INTERVAL_SECONDS
 
 
-def _warn_ocr_not_configured(message: str) -> None:
-    global _warned_not_configured
-    if _warned_not_configured:
-        return
-    _warned_not_configured = True
-    logger.warning(message)
-
-
 def sanitize_ocr_error(message: str) -> str:
     return _SENSITIVE_QUERY_PATTERN.sub(lambda match: f"{match.group(1)}=<redacted>", message)
 
@@ -1240,5 +1033,3 @@ def _update_ocr_status(session_id: str, **fields: Any) -> None:
     status = app_state.live_comment_ocr_status.setdefault(session_id, {})
     status.update(fields)
     status["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-

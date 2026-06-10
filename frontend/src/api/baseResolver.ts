@@ -34,5 +34,9 @@ export function resolveApiBase(options: ResolveApiBaseOptions) {
   }
 
   if (options.queryApiBase) return options.queryApiBase
-  return options.savedApiBase || options.deployedApiBase || options.defaultApiBase
+  if (options.savedApiBase && isLoopbackApi(options.savedApiBase)) return options.savedApiBase
+  if (options.deployedApiBase && !sameOrigin(options.deployedApiBase, options.windowOrigin)) {
+    return options.deployedApiBase
+  }
+  return options.defaultApiBase
 }

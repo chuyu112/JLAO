@@ -492,7 +492,7 @@ export const useJlaoStore = defineStore('jlao', {
         this.nativeSttInfo = {
           running: false,
           serial: '',
-          provider: 'aliyun',
+          provider: 'local',
           last_error: detail || e.message || '原生手机音频转写启动失败',
           audio_chunks: 0,
           audio_bytes: 0,

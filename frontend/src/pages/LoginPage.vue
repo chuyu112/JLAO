@@ -59,6 +59,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
 import { NButton, NForm, NFormItem, NInput, NTag, useMessage } from 'naive-ui'
 import { useAuthStore } from '../stores/auth'
 
@@ -75,8 +76,18 @@ async function handleLogin() {
     const user = await auth.login(username.value, password.value)
     message.success(`欢迎回来，${user.display_name}`)
     router.push('/live')
-  } catch {
-    message.error('账号或密码不正确')
+  } catch (error) {
+    if (isAxiosError(error)) {
+      if (error.response?.status === 401) {
+        message.error('账号或密码不正确')
+      } else if (!error.response) {
+        message.error('后端未连接，请先启动 open-local-backend.bat')
+      } else {
+        message.error(`登录失败：后端返回 ${error.response.status}`)
+      }
+    } else {
+      message.error('登录失败，请稍后重试')
+    }
   } finally {
     loading.value = false
   }

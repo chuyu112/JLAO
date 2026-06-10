@@ -24,6 +24,41 @@ class WikiServiceTests(unittest.TestCase):
         self.assertEqual(hits[0].heading, "售后 FAQ")
 
 
+class LocalSttServiceTests(unittest.TestCase):
+    def test_funasr_alias_prefers_local_modelscope_cache(self) -> None:
+        import os
+        import tempfile
+
+        from app.services.local_stt_service import _resolve_funasr_model
+
+        old_cache = os.environ.get("MODELSCOPE_CACHE")
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                model_dir = (
+                    Path(temp_dir)
+                    / "models"
+                    / "iic"
+                    / "speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online"
+                )
+                model_dir.mkdir(parents=True)
+                os.environ["MODELSCOPE_CACHE"] = temp_dir
+
+                self.assertEqual(Path(_resolve_funasr_model("paraformer-zh-streaming")), model_dir)
+        finally:
+            if old_cache is None:
+                os.environ.pop("MODELSCOPE_CACHE", None)
+            else:
+                os.environ["MODELSCOPE_CACHE"] = old_cache
+
+    def test_funasr_streaming_text_merges_incremental_chunks(self) -> None:
+        from app.services.local_stt_service import _merge_funasr_text
+
+        self.assertEqual(_merge_funasr_text("", "欢迎大家"), "欢迎大家")
+        self.assertEqual(_merge_funasr_text("欢迎大家", "来体验"), "欢迎大家来体验")
+        self.assertEqual(_merge_funasr_text("欢迎大家来体验", "大家来体验"), "欢迎大家来体验")
+        self.assertEqual(_merge_funasr_text("欢迎大家", "欢迎大家来体验"), "欢迎大家来体验")
+
+
 class DatabaseRepositoryTests(unittest.TestCase):
     def test_seed_products_persists_products_to_configured_database(self) -> None:
         from app.db import configure_database, init_db
@@ -886,6 +921,39 @@ class LiveRoomNameDetectionTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(extract_live_room_name(["视频号", f"LIVE {name} 的直播间", "关注"]), name)
 
+    def test_extract_live_room_name_prefers_clean_repeated_store_name(self) -> None:
+        from app.services.live_room_name_service import extract_live_room_name
+
+        room_name = extract_live_room_name(
+            [
+                "5G",
+                "平洲万万翡翠手虱",
+                "看过",
+                "礼物墙 0 /",
+                "平洲万万翡翠手镯 -",
+                "平洲万万翡翠手躅",
+            ]
+        )
+
+        self.assertEqual(room_name, "平洲万万翡翠手镯")
+
+    def test_extract_live_room_name_ignores_status_bar_time(self) -> None:
+        from app.services.live_room_name_service import extract_live_room_name
+
+        room_name = extract_live_room_name(
+            [
+                "22:14",
+                "2 ： 14 0 ·",
+                "5G",
+                "100",
+                "平洲万万翡翠手镯",
+            ]
+        )
+
+        self.assertEqual(room_name, "平洲万万翡翠手镯")
+
+        self.assertEqual(extract_live_room_name(["22:14", "2 ： 14 0 ·", "100"]), "")
+
 
 class LiveCommentOcrTests(unittest.TestCase):
     def test_ocr_lines_are_parsed_into_real_live_comment_events(self) -> None:
@@ -911,7 +979,7 @@ class LiveCommentOcrTests(unittest.TestCase):
         self.assertEqual(events[1].event_type, "关注")
         self.assertNotIn("江苏健康广播", [event.content for event in events])
 
-    def test_windows_ocr_spaced_lines_are_joined_into_comments(self) -> None:
+    def test_spaced_ocr_lines_are_joined_into_comments(self) -> None:
         from datetime import datetime, timezone
 
         from app.services.live_comment_service import events_from_ocr_lines
@@ -1183,7 +1251,7 @@ class LiveCommentOcrTests(unittest.TestCase):
     def test_ocr_errors_are_sanitized_before_logging(self) -> None:
         from app.services.live_comment_service import sanitize_ocr_error
 
-        message = "https://ocr-api.cn-hangzhou.aliyuncs.com/?AccessKeyId=abc&Signature=secret&SignatureNonce=nonce"
+        message = "local-ocr-error?AccessKeyId=abc&Signature=secret&SignatureNonce=nonce"
 
         sanitized = sanitize_ocr_error(message)
 
@@ -1195,9 +1263,5 @@ class LiveCommentOcrTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
 
 

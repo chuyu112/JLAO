@@ -21,6 +21,7 @@
         <a class="nav-link" href="/live#products">商品库</a>
         <a class="nav-link" href="/live#operations">运营库</a>
         <router-link class="nav-link" to="/jade-recognition">翡翠识别</router-link>
+        <router-link class="nav-link" to="/annotate">人工标注</router-link>
         <router-link class="nav-link" to="/replay">观察报告</router-link>
       </div>
       <div class="user-chip" v-if="auth.user">

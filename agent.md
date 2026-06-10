@@ -1,5 +1,80 @@
 # JLAO Agent 上下文
 
+---
+
+## 2026-06-09 会话备忘
+
+完整记录见：`2026-06-09-chat-memo.md`。
+
+### 本地前后端结论
+
+- 当前如果前后端都在本地跑，主入口应使用 `http://127.0.0.1:5173`。
+- 本地后端入口是 `http://127.0.0.1:8000`。
+- 不建议再用线上 `https://jlao.szkakayiduo.com` 去访问本机 `http://127.0.0.1:8000`，浏览器容易因为 HTTPS 到 HTTP、Private Network Access、跨域等原因拦截。
+- 线上网站仍适合演示服务器功能、部署静态前端、或未来做公网统一入口；本地硬件相关能力以本地前端 + 本地后端为主。
+
+### 今日已改前端
+
+- `frontend/src/api/baseResolver.ts`
+  - 本地开发默认回到 `http://127.0.0.1:8000`。
+  - 避免本地 Vite 页面默认把 API 指到 `http://127.0.0.1:5173`。
+- `frontend/vite.config.ts`
+  - 已添加 Vite dev proxy：
+    - `/api` -> `http://127.0.0.1:8000`
+    - `/health` -> `http://127.0.0.1:8000`
+    - `/uploads` -> `http://127.0.0.1:8000`
+    - `/ws` -> `ws://127.0.0.1:8000`
+- 已执行 `npm run build`，前端构建通过。
+
+### 检查结果摘要
+
+- 前端：
+  - `npm ci` 已安装依赖。
+  - `npm run build` 通过。
+  - `node --test tests\*.mjs` 有 2 个静态测试失败，主要是测试期望与当前代码文案/音频配置不一致。
+- 后端：
+  - 已安装 `backend/requirements-filtered.txt` + `pytest`。
+  - 未安装完整 GPU/Torch/OCR/Ultralytics 依赖。
+  - `python -m pytest tests` 结果为 `128 passed, 10 failed`。
+  - 失败集中在翡翠文本分类、YOLO 未配置提示、scrcpy 扫描函数、Native STT 音频源和 adb 路径。
+
+### 四台电脑训练方案
+
+- 4 台电脑可以用同一套程序代码，但每台电脑必须有自己的身份。
+- 建议每台电脑本地 `.env` 配置：
+
+```env
+JLAO_WORKER_ID=pc-a
+JLAO_WORKER_NAME=客厅4090
+JLAO_DATA_ROOT=D:\JLAO\data\workers\pc-a
+JLAO_RUN_ROOT=D:\JLAO\runs\workers\pc-a
+```
+
+- 四台电脑分别使用：
+
+```text
+pc-a
+pc-b
+pc-c
+pc-d
+```
+
+- 数据策略：
+  - 4 台电脑的数据全部汇总成总训练集。
+  - 不要只选其中一台电脑的数据。
+  - 汇总后统一去重、清洗、标注、切 train/val/test。
+- 模型策略：
+  - 4 台电脑可以并行训练不同实验。
+  - 最终用同一验证集/测试集评估。
+  - 正式上线通常只选一个稳定主模型，输出到 `models/jade-yolo.pt`。
+  - 其他模型保留为备份和对比。
+
+### 重启后优先事项
+
+1. 用 `http://127.0.0.1:5173` 验证本地前端。
+2. 用 `http://127.0.0.1:8000/health` 验证本地后端。
+3. 给 4 台电脑分别配置 `JLAO_WORKER_ID`。
+4. 后续可补脚本：自动读取 `JLAO_WORKER_ID` 并生成采集、训练、模型输出路径。
 ## 项目概述
 
 视频号翡翠直播间AI助手系统。为主播、观众、运营提供全链路翡翠识别与直播辅助能力。

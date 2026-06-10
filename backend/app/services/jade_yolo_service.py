@@ -44,6 +44,9 @@ WORKSPACE_DIR = Path(__file__).resolve().parents[3]
 YOLO_CONFIG_DIR = WORKSPACE_DIR / ".ultralytics"
 YOLO_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("YOLO_CONFIG_DIR", str(YOLO_CONFIG_DIR))
+MPL_CONFIG_DIR = WORKSPACE_DIR / ".matplotlib"
+MPL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(MPL_CONFIG_DIR))
 
 
 @dataclass(frozen=True)
@@ -178,7 +181,9 @@ def jade_attributes_from_yolo_label(label: str) -> tuple[str, str]:
         "葫芦": ("gourd", "hulu", "葫芦", "福禄"),
         "无事牌": ("safe_plaque", "wushi", "无事牌", "平安无事牌"),
         "财神": ("caishen", "wealth_god", "财神", "关公", "武财神"),
-        "龙牌": ("dragon", "longpai", "龙牌", "龙纹", "生肖龙"),
+        "龙牌": ("dragon", "dragon_plaque", "longpai", "龙牌", "龙纹", "生肖龙"),
+        "福瓜": ("fu_gua", "fugua", "福瓜", "瓜"),
+        "福豆": ("fu_dou", "fudou", "bean", "beans", "福豆", "四季豆", "豆荚", "豆子"),
     }
     return _first_label_match(normalized, style_terms), _first_label_match(normalized, theme_terms)
 

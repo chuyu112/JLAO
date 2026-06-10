@@ -144,7 +144,7 @@ const jadeSelectOptions = computed(() => ({
   colors: toSelectOptions(jadeTaxonomyOptions.value?.colors || ['帝王绿', '阳绿', '辣绿', '苹果绿', '豆绿', '绿色', '蓝水', '晴水', '油青', '紫罗兰', '春带彩', '白冰', '无色', '白底青', '飘花', '黄翡', '冰黄', '洒金', '墨翠', '红翡', '多彩']),
   waters: toSelectOptions(jadeTaxonomyOptions.value?.waters || ['玻璃种', '高冰', '冰种', '冰胶', '起冰', '冰糯', '糯冰', '起胶', '糯化', '细糯', '糯种', '豆种']),
   styles: toSelectOptions(jadeTaxonomyOptions.value?.styles || ['手镯', '珠串', '蛋面', '戒面', '戒指', '挂件', '吊坠', '平安扣', '摆件', '把件', '耳饰']),
-  themes: toSelectOptions(jadeTaxonomyOptions.value?.themes || ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜']),
+  themes: toSelectOptions(jadeTaxonomyOptions.value?.themes || ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜', '福豆']),
 }))
 
 onMounted(async () => {

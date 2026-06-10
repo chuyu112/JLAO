@@ -1,32 +1,95 @@
 from __future__ import annotations
 
+import csv
+import json
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.services.jade_yolo_service import DEFAULT_YOLO_MIN_CONFIDENCE, detect_jade_candidates
+from app.services.jade_yolo_service import detect_jade_candidates
 from app.state import WORKSPACE_DIR, app_state
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 router = APIRouter()
-LIVE_YOLO_MIN_CONFIDENCE = DEFAULT_YOLO_MIN_CONFIDENCE
-LIVE_YOLO_ROI = (0.0, 0.12, 0.92, 0.84)
+LIVE_YOLO_MIN_CONFIDENCE = _float_env("JLAO_LIVE_YOLO_MIN_CONFIDENCE", 0.05)
+LIVE_YOLO_ROI = (0.0, 0.0, 1.0, 1.0)
 LIVE_YOLO_CONFIRM_FRAMES = 3
 LIVE_YOLO_HOLD_FRAMES = 10
 LIVE_YOLO_SWITCH_FRAMES = 8
 LIVE_YOLO_MATCH_MIN_IOU = 0.12
 LIVE_YOLO_BOX_SMOOTHING = 0.65
 LIVE_TRACKER_IDLE_TTL_SECONDS = 600
+LIVE_YOLO_SNAPSHOT_ENABLED = os.getenv("JLAO_YOLO_LIVE_SNAPSHOT_ENABLED", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+LIVE_YOLO_SNAPSHOT_INTERVAL_SECONDS = max(
+    1.0,
+    float(os.getenv("JLAO_YOLO_LIVE_SNAPSHOT_INTERVAL_SECONDS", "30.0") or "30.0"),
+)
+LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION = max(0, int(os.getenv("JLAO_YOLO_LIVE_SNAPSHOT_MAX_PER_SESSION", "100") or "100"))
+LIVE_YOLO_SNAPSHOT_ROOT = WORKSPACE_DIR / "uploads" / "yolo-live-snapshots"
+LIVE_YOLO_FEEDBACK_PATH = WORKSPACE_DIR / "data" / "jade_feedback.jsonl"
+LIVE_YOLO_SNAPSHOT_MANIFEST_FIELDS = [
+    "image",
+    "batch_id",
+    "feedback_id",
+    "session_id",
+    "source_frame_id",
+    "width",
+    "height",
+    "created_at",
+]
+LIVE_YOLO_SNAPSHOT_PETS = (
+    "\n".join((
+        "▐▛███▜▌   ",
+        "▝▜█████▛▘  ",
+        "  ▘▘ ▝▝",
+    )),
+    "\n".join((
+        " ▟████▙ ",
+        "▐██████▌",
+        " ▘▘  ▝▝ ",
+    )),
+    "\n".join((
+        "▗▛███▜▖",
+        "▝█████▘",
+        "  ▚  ▞ ",
+    )),
+)
 
 
 @dataclass
 class LiveYoloTrackingUpdate:
     detections: list[dict[str, Any]]
     tracking: dict[str, Any]
+
+
+@dataclass
+class LiveYoloSnapshotState:
+    batch_id: str
+    image_dir: Path
+    manifest_path: Path
+    saved: int = 0
+    last_saved_at: float = 0.0
 
 
 @dataclass
@@ -210,6 +273,7 @@ class LiveJadeTracker:
 
 
 _live_trackers: dict[str, LiveJadeTracker] = {}
+_live_snapshot_states: dict[str, LiveYoloSnapshotState] = {}
 
 
 @router.post("/sessions/{session_id}/jade-yolo/detect-frame")
@@ -235,6 +299,7 @@ async def detect_jade_yolo_frame(session_id: str, file: UploadFile = File(...)) 
         save_ms = (time.perf_counter() - started_at) * 1000
 
         width, height = _image_size(image_path)
+        snapshot = _maybe_save_live_snapshot(session_id, image_path, width=width, height=height)
         yolo_started_at = time.perf_counter()
         candidate_dicts, runtime = _detect_live_jade_candidates(
             image_path,
@@ -252,6 +317,7 @@ async def detect_jade_yolo_frame(session_id: str, file: UploadFile = File(...)) 
             "candidates": candidate_dicts,
             "tracking": tracking.tracking,
             "runtime": runtime,
+            "snapshot": snapshot,
             "live_min_confidence": LIVE_YOLO_MIN_CONFIDENCE,
             "live_roi": LIVE_YOLO_ROI,
             "live_confirm_frames": LIVE_YOLO_CONFIRM_FRAMES,
@@ -282,33 +348,170 @@ def _detect_live_jade_candidates(
     height: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     roi_box = _live_yolo_roi_box(width, height)
-    crop_path = image_path.with_name(f"{image_path.stem}-roi{image_path.suffix}")
-    try:
-        _crop_image(image_path, crop_path, roi_box)
-        detections, runtime = detect_jade_candidates(
-            crop_path,
-            min_confidence=LIVE_YOLO_MIN_CONFIDENCE,
-            max_detections=3,
-        )
-        offset_x, offset_y, _, _ = roi_box
-        detection_dicts = [
-            _remap_live_detection(item.to_dict(), offset_x=offset_x, offset_y=offset_y)
-            for item in detections
-        ]
-        runtime = {
-            **runtime,
-            "live_roi": {
-                "ratio": LIVE_YOLO_ROI,
-                "box": list(roi_box),
-                "filtered_from": len(detections),
+    detections, runtime = detect_jade_candidates(
+        image_path,
+        min_confidence=LIVE_YOLO_MIN_CONFIDENCE,
+        max_detections=5,
+    )
+    detection_dicts = [item.to_dict() for item in detections]
+    runtime = {
+        **runtime,
+        "live_roi": {
+            "ratio": LIVE_YOLO_ROI,
+            "box": list(roi_box),
+            "filtered_from": len(detections),
+            "mode": "full-frame",
+        },
+    }
+    return detection_dicts, runtime
+
+
+def _maybe_save_live_snapshot(session_id: str, image_path: Path, *, width: int, height: int) -> dict[str, Any]:
+    if not LIVE_YOLO_SNAPSHOT_ENABLED:
+        return {"enabled": False, "saved": False, "reason": "disabled"}
+    if LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION <= 0:
+        return {"enabled": True, "saved": False, "reason": "limit-disabled"}
+
+    state = _live_snapshot_state_for_session(session_id)
+    if state.saved >= LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION:
+        return {
+            "enabled": True,
+            "saved": False,
+            "reason": "max-reached",
+            "batch_id": state.batch_id,
+            "count": state.saved,
+            "limit": LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION,
+        }
+
+    now = time.monotonic()
+    if state.last_saved_at and now - state.last_saved_at < LIVE_YOLO_SNAPSHOT_INTERVAL_SECONDS:
+        return {
+            "enabled": True,
+            "saved": False,
+            "reason": "interval",
+            "batch_id": state.batch_id,
+            "count": state.saved,
+            "limit": LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION,
+        }
+
+    state.image_dir.mkdir(parents=True, exist_ok=True)
+    state.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    LIVE_YOLO_FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    index = state.saved + 1
+    target_path = state.image_dir / f"real_{index:04d}{image_path.suffix.lower() or '.jpg'}"
+    target_path.write_bytes(image_path.read_bytes())
+    image_ref = _public_upload_ref(target_path)
+    feedback_id = f"jade-yolo-live-{uuid4().hex[:12]}"
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    _append_snapshot_manifest(
+        state.manifest_path,
+        {
+            "image": image_ref,
+            "batch_id": state.batch_id,
+            "feedback_id": feedback_id,
+            "session_id": session_id,
+            "source_frame_id": image_path.stem,
+            "width": width,
+            "height": height,
+            "created_at": created_at,
+        },
+    )
+    _append_feedback_record(
+        {
+            "id": feedback_id,
+            "created_at": created_at,
+            "input": {
+                "image": image_ref,
+                "batch_id": state.batch_id,
+                "source": "yolo-live",
+                "session_id": session_id,
+                "source_frame_id": image_path.stem,
+                "image_width": width,
+                "image_height": height,
+            },
+            "predicted": {},
+            "corrected": {"color": "", "water": "", "style": "", "theme": ""},
+            "evidence": {"images": [image_ref], "texts": [], "detections": []},
+            "confidence": 0.0,
+            "source": "yolo-live-snapshot",
+            "attribute_sources": {},
+            "needs_review": True,
+            "review_status": "pending",
+            "review_reason": "needs-human-yolo-box",
+            "training": {
+                "suggested_classes": [],
+                "yolo_ready": False,
+                "requires_manual_box": True,
+                "box_mode": "",
             },
         }
-        return detection_dicts, runtime
-    finally:
-        try:
-            crop_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+    )
+
+    state.saved = index
+    state.last_saved_at = now
+    pet = _snapshot_pet(state.saved)
+    print(
+        f"[yolo-live-snapshot {session_id}]\n"
+        f"{pet}\n"
+        f"saved {state.saved}/{LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION} "
+        f"batch={state.batch_id} image={image_ref} feedback={feedback_id}"
+    )
+    return {
+        "enabled": True,
+        "saved": True,
+        "batch_id": state.batch_id,
+        "count": state.saved,
+        "limit": LIVE_YOLO_SNAPSHOT_MAX_PER_SESSION,
+        "image": image_ref,
+        "feedback_id": feedback_id,
+    }
+
+
+def _snapshot_pet(saved_count: int) -> str:
+    if not LIVE_YOLO_SNAPSHOT_PETS:
+        return ""
+    return LIVE_YOLO_SNAPSHOT_PETS[(max(1, saved_count) - 1) % len(LIVE_YOLO_SNAPSHOT_PETS)]
+
+
+def _live_snapshot_state_for_session(session_id: str) -> LiveYoloSnapshotState:
+    state = _live_snapshot_states.get(session_id)
+    if state is not None:
+        return state
+    safe_session_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in session_id).strip("-")
+    safe_session_id = safe_session_id or "session"
+    batch_id = f"yolo-live-{safe_session_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    batch_dir = LIVE_YOLO_SNAPSHOT_ROOT / batch_id
+    state = LiveYoloSnapshotState(
+        batch_id=batch_id,
+        image_dir=batch_dir / "images",
+        manifest_path=batch_dir / "manifest.csv",
+    )
+    _live_snapshot_states[session_id] = state
+    return state
+
+
+def _append_snapshot_manifest(path: Path, row: dict[str, Any]) -> None:
+    needs_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=LIVE_YOLO_SNAPSHOT_MANIFEST_FIELDS)
+        if needs_header:
+            writer.writeheader()
+        writer.writerow({field: row.get(field, "") for field in LIVE_YOLO_SNAPSHOT_MANIFEST_FIELDS})
+
+
+def _append_feedback_record(record: dict[str, Any]) -> None:
+    with LIVE_YOLO_FEEDBACK_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _public_upload_ref(path: Path) -> str:
+    try:
+        relative = path.resolve().relative_to((WORKSPACE_DIR / "uploads").resolve())
+        return "/uploads/" + str(relative).replace("\\", "/")
+    except ValueError:
+        return str(path)
 
 
 def _tracker_for_session(session_id: str) -> LiveJadeTracker:
@@ -413,34 +616,6 @@ def _live_yolo_roi_box(width: int, height: int) -> tuple[int, int, int, int]:
     right = max(left + 1, min(width, int(width * right_ratio)))
     bottom = max(top + 1, min(height, int(height * bottom_ratio)))
     return left, top, right, bottom
-
-
-def _crop_image(image_path: Path, crop_path: Path, roi_box: tuple[int, int, int, int]) -> None:
-    try:
-        from PIL import Image
-    except ImportError as exc:
-        raise RuntimeError("Pillow 未安装，无法裁剪 YOLO 实时画面") from exc
-
-    with Image.open(image_path) as image:
-        image.crop(roi_box).save(crop_path, quality=92)
-
-
-def _remap_live_detection(
-    detection: dict[str, Any],
-    *,
-    offset_x: int,
-    offset_y: int,
-) -> dict[str, Any]:
-    box = detection.get("box")
-    if not isinstance(box, list) or len(box) != 4:
-        return detection
-    remapped = [
-        round(float(box[0]) + offset_x, 2),
-        round(float(box[1]) + offset_y, 2),
-        round(float(box[2]) + offset_x, 2),
-        round(float(box[3]) + offset_y, 2),
-    ]
-    return {**detection, "box": remapped}
 
 
 def _safe_suffix(filename: str, content_type: str) -> str:

@@ -19,6 +19,11 @@ JADE_YOLO_CLASS_NAMES = [
     "landscape",
     "pixiu",
     "gourd",
+    "jade_ornament",
+    "caishen",
+    "dragon_plaque",
+    "fu_gua",
+    "fu_dou",
 ]
 
 JADE_YOLO_CLASS_DESCRIPTIONS = {
@@ -36,6 +41,11 @@ JADE_YOLO_CLASS_DESCRIPTIONS = {
     "landscape": "山水题材",
     "pixiu": "貔貅题材",
     "gourd": "葫芦题材",
+    "jade_ornament": "摆件 / 把件 / 手把件",
+    "caishen": "财神 / 关公 / 武财神题材",
+    "dragon_plaque": "龙牌 / 龙纹 / 生肖龙题材",
+    "fu_gua": "福瓜题材",
+    "fu_dou": "福豆 / 四季豆题材",
 }
 def build_jade_dataset_yaml(dataset_root: str | Path = "data/jade_yolo") -> str:
     root = Path(dataset_root).as_posix()
@@ -69,4 +79,3 @@ def jade_training_manifest(dataset_root: str | Path = "data/jade_yolo") -> dict[
             "test_labels": str(root / "labels" / "test"),
         },
     }
-

@@ -510,7 +510,9 @@ const YOLO_CLASS_LABELS: Record<string, string> = {
   gourd: '葫芦',
   jade_ornament: '摆件',
   caishen: '财神',
-  dragon_plaque: '龙',
+  dragon_plaque: '龙牌',
+  fu_gua: '福瓜',
+  fu_dou: '福豆',
 }
 
 function yoloClassLabel(className: string) {
@@ -780,7 +782,7 @@ function taxonomyOptionsFor(key: JadeAttributeKey) {
       ? ['玻璃种', '高冰', '冰种', '冰胶', '起冰', '冰糯', '糯冰', '起胶', '糯化', '细糯', '糯种', '豆种']
       : key === 'style'
         ? ['手镯', '珠串', '蛋面', '戒面', '戒指', '挂件', '吊坠', '平安扣', '摆件', '把件', '耳饰']
-        : ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜']
+        : ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜', '福豆']
   return ((values?.length ? values : fallback) || []).map(value => ({ label: value, value }))
 }
 
@@ -1755,5 +1757,4 @@ h1 {
   }
 }
 </style>
-
 

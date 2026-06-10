@@ -143,7 +143,7 @@ python scripts/train_jade_yolo.py --epochs 100 --batch auto
 ### API 配置（scripts/generate_jade_variations_v3.py）
 
 ```python
-api_key = "sk-a2082f0fe3ec984d20bd1d3e961dcdd12d07d7e70d813d01973f26907cae942b"
+api_key = "sk-REDACTED"
 base_url = "http://api.kakayiduo.cloud:8080/v1"
 ```
 

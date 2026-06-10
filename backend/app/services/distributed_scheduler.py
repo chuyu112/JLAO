@@ -38,7 +38,7 @@ class CaptureTask:
 class DistributedScheduler:
     """分布式任务调度器"""
 
-    def __init__(self, redis_url: str = "redis://47.120.41.143:6379/0"):
+    def __init__(self, redis_url: str = "redis://127.0.0.1:6379/0"):
         self.redis = redis.from_url(redis_url, decode_responses=True)
         self.task_prefix = "jlao:task:"
         self.worker_prefix = "jlao:worker:"

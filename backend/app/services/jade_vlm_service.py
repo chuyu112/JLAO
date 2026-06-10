@@ -34,7 +34,7 @@ DEFAULT_VLM_PROMPT = (
     "- grain: 无明显/轻微/明显/很粗\n"
     "- texture_fineness: 细腻/中等/粗\n"
     "- luster: 弱/中/强\n"
-    "- shape_theme: 无/观音/佛公/如意/叶子/山水/貔貅/葫芦/无事牌/财神/龙/福瓜/其他\n"
+    "- shape_theme: 无/观音/佛公/如意/叶子/山水/貔貅/葫芦/无事牌/财神/龙/福瓜/福豆/其他\n"
     "- confidence: 0-100整数\n"
 )
 EMPTY_VALUES = {
@@ -92,8 +92,8 @@ VLM_TERM_CATALOGS: dict[str, dict[str, tuple[str, ...]]] = {
         "珠串": ("珠串", "手串", "珠子", "珠链", "项链", "佛珠"),
         "蛋面": ("蛋面", "鸽子蛋", "裸石"),
         "戒面": ("戒面", "戒面石"),
-        "挂件": ("挂件", "牌坠", "牌子", "无事牌", "山水牌", "龙牌", "龙牌吊坠", "山水牌吊坠", "小挂件", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "貔貅"),
         "吊坠": ("吊坠", "坠子", "镶嵌坠", "裸石坠"),
+        "挂件": ("挂件", "牌坠", "牌子", "无事牌", "山水牌", "龙牌", "龙牌吊坠", "山水牌吊坠", "小挂件", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"),
         "戒指": ("戒指", "戒托", "戒圈"),
         "平安扣": ("平安扣", "扣子", "怀古"),
         "摆件": ("摆件", "把件", "手把件"),
@@ -109,7 +109,8 @@ VLM_TERM_CATALOGS: dict[str, dict[str, tuple[str, ...]]] = {
         "无事牌": ("无事牌", "平安无事牌"),
         "财神": ("财神", "关公", "武财神"),
         "龙": ("龙", "龙牌", "龙纹", "生肖龙"),
-        "福瓜": ("福瓜", "瓜", "福豆"),
+        "福瓜": ("福瓜", "瓜"),
+        "福豆": ("福豆", "四季豆", "豆荚", "豆子"),
     },
 }
 
@@ -119,9 +120,12 @@ def get_vlm_runtime_status() -> dict[str, Any]:
     http_format = configured_vlm_http_format()
     httpx_available = importlib.util.find_spec("httpx") is not None
     if http_url or http_model:
-        enabled = bool(http_url and http_model and httpx_available)
+        local_http = is_ollama_http_url(http_url)
+        enabled = bool(http_url and http_model and httpx_available and local_http)
         if enabled:
             reason = "ready"
+        elif not local_http:
+            reason = "remote-http-vlm-disabled"
         elif not http_url:
             reason = "http-url-not-configured"
         elif not http_model:
@@ -225,8 +229,7 @@ def configured_vlm_http_model() -> str:
 
 
 def configured_vlm_http_format() -> str:
-    value = os.getenv("JLAO_VLM_HTTP_FORMAT", "auto").strip().lower()
-    return value if value in {"auto", "openai", "ollama"} else "auto"
+    return "ollama"
 
 
 def configured_vlm_http_timeout() -> float:
@@ -312,54 +315,32 @@ def post_http_vlm(
 ) -> Any:
     url = str(status.get("http_url") or "").rstrip("/")
     model = str(status.get("configured_model_path") or "")
-    http_format = str(status.get("http_format") or "auto")
     timeout = configured_vlm_http_timeout()
     headers: dict[str, str] = {}
-    api_key = os.getenv("JLAO_VLM_HTTP_API_KEY", "").strip()
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
 
-    if http_format == "ollama" or (http_format == "auto" and is_ollama_http_url(url)):
-        endpoint = url if url.endswith("/api/chat") else f"{url}/api/chat"
-        payload = {
-            "model": model,
-            "stream": False,
-            "think": False,
-            "format": "json",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": [image_base64],
-                }
-            ],
-            "options": {
-                "temperature": 0,
-                "num_ctx": 2048,
-                "num_predict": 200,
-            },
-        }
-        response = httpx_module.post(endpoint, json=payload, headers=headers, timeout=timeout)
-    else:
-        endpoint = url if url.endswith("/chat/completions") else f"{url}/v1/chat/completions"
-        payload = {
-            "model": model,
-            "temperature": 0.1,
-            "max_tokens": 220,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
-                        },
-                    ],
-                }
-            ],
-        }
-        response = httpx_module.post(endpoint, json=payload, headers=headers, timeout=timeout)
+    if not is_ollama_http_url(url):
+        raise RuntimeError("remote-http-vlm-disabled")
+
+    endpoint = url if url.endswith("/api/chat") else f"{url}/api/chat"
+    payload = {
+        "model": model,
+        "stream": False,
+        "think": False,
+        "format": "json",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+                "images": [image_base64],
+            }
+        ],
+        "options": {
+            "temperature": 0,
+            "num_ctx": 2048,
+            "num_predict": 200,
+        },
+    }
+    response = httpx_module.post(endpoint, json=payload, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.json()
 
@@ -782,7 +763,7 @@ def legacy_style_from_text(value: Any) -> str:
         "戒面": ("戒面", "戒面石"),
         "戒指": ("戒指", "戒托", "戒圈"),
         "牌子": ("牌子", "牌型", "龙牌", "山水牌", "无事牌"),
-        "吊坠": ("吊坠", "挂件", "坠子", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "貔貅"),
+        "吊坠": ("吊坠", "挂件", "坠子", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"),
         "摆件": ("摆件", "把件", "手把件"),
     }
     for canonical, aliases in catalogs.items():
@@ -806,7 +787,8 @@ def legacy_theme_from_text(value: Any) -> str:
         "无事牌": ("无事牌", "平安无事牌"),
         "财神": ("财神", "关公", "武财神"),
         "龙牌": ("龙牌", "龙纹", "生肖龙", "龙"),
-        "福瓜": ("福瓜", "瓜", "福豆"),
+        "福瓜": ("福瓜", "瓜"),
+        "福豆": ("福豆", "四季豆", "豆荚", "豆子"),
     }
     for canonical, aliases in catalogs.items():
         if compact == canonical or any(alias and alias in compact for alias in aliases):

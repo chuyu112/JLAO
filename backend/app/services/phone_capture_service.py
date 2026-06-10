@@ -26,13 +26,21 @@ class PhoneCaptureTaskState:
 
 capture_tasks: dict[str, PhoneCaptureTaskState] = {}
 WINDOWS_DRIVER_ROOT = "D:\\"
+_ADB_PATH_ENV_VARS = ("JLAO_ADB_PATH", "ADB_PATH", "ANDROID_ADB_PATH")
+_ANDROID_SDK_ENV_VARS = ("ANDROID_HOME", "ANDROID_SDK_ROOT")
 
 if sys.platform == "win32":
     _ADB_CANDIDATES = [
+        r"D:\platform-tools\adb.exe",
+        r"D:\Android\platform-tools\adb.exe",
         r"D:\JLAO\QtScrcpy-dev\output\x64\Release\adb.exe",
         r"D:\scrcpy-win64-v4.0\adb.exe",
         r"D:\QtScrcpy-win-x64-v3.3.3\adb.exe",
         r"D:\scrcpy-win64-v3.3.4\adb.exe",
+        r"C:\Android\platform-tools\adb.exe",
+        r"C:\Android\Sdk\platform-tools\adb.exe",
+        r"C:\Program Files\Android\platform-tools\adb.exe",
+        r"C:\Users\Administrator\AppData\Local\Android\Sdk\platform-tools\adb.exe",
         r"C:\Program Files\scrcpy\adb.exe",
         r"C:\ProgramData\chocolatey\bin\adb.exe",
         r"C:\Users\Administrator\scoop\shims\adb.exe",
@@ -46,8 +54,9 @@ else:
 
 
 def _get_adb_exe() -> str:
+    env_candidates = _adb_candidates_from_env()
     root_candidates = _scan_drive_root_adb_candidates(WINDOWS_DRIVER_ROOT) if sys.platform == "win32" else []
-    for candidate in [*root_candidates, *_ADB_CANDIDATES]:
+    for candidate in [*env_candidates, *root_candidates, *_ADB_CANDIDATES]:
         if os.path.exists(candidate):
             return candidate
 
@@ -55,7 +64,32 @@ def _get_adb_exe() -> str:
     if path:
         return path
 
-    raise FileNotFoundError("未找到 adb，请确认 scrcpy/platform-tools 已安装。")
+    raise FileNotFoundError(
+        "未找到 adb。请安装 Android SDK Platform-Tools 或 scrcpy，"
+        "并将 adb.exe 放到 PATH，或在 D:\\JLAO\\.env 中配置 JLAO_ADB_PATH=完整的 adb.exe 路径。"
+    )
+
+
+def _adb_candidates_from_env() -> list[str]:
+    candidates: list[str] = []
+    adb_name = "adb.exe" if sys.platform == "win32" else "adb"
+
+    for env_name in _ADB_PATH_ENV_VARS:
+        value = os.getenv(env_name, "").strip().strip('"')
+        if not value:
+            continue
+        if os.path.isdir(value):
+            candidates.append(os.path.join(value, adb_name))
+        else:
+            candidates.append(value)
+
+    for env_name in _ANDROID_SDK_ENV_VARS:
+        value = os.getenv(env_name, "").strip().strip('"')
+        if not value:
+            continue
+        candidates.append(os.path.join(value, "platform-tools", adb_name))
+
+    return candidates
 
 
 def _scan_drive_root_adb_candidates(root: str = WINDOWS_DRIVER_ROOT) -> list[str]:

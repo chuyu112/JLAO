@@ -94,9 +94,9 @@ JLAO/
 FUNASR_DEVICE=cuda
 PADDLEOCR_USE_GPU=true
 
-# API 密钥
-ALIYUN_AK_ID=your_key
-ALIYUN_AK_SECRET=your_secret
+# 语音/OCR 默认使用本地引擎，不配置付费云服务密钥
+STT_PROVIDER=local
+LOCAL_STT_ENGINE=funasr
 ```
 
 ## 🆘 常见问题

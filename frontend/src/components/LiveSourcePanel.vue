@@ -389,33 +389,17 @@ async function captureFrameBlob() {
 }
 
 async function renderFrameToBlob(source: CanvasImageSource, sourceWidth: number, sourceHeight: number, maxWidth: number) {
-  const crop = captureMode.value === 'tab' ? getScaledTabCaptureCrop(sourceWidth, sourceHeight) : null
-  const inputX = crop?.x ?? 0
-  const inputY = crop?.y ?? 0
-  const inputWidth = crop?.width ?? sourceWidth
-  const inputHeight = crop?.height ?? sourceHeight
-  const scale = Math.min(1, maxWidth / inputWidth)
-  const width = Math.round(inputWidth * scale)
-  const height = Math.round(inputHeight * scale)
+  const scale = Math.min(1, maxWidth / sourceWidth)
+  const width = Math.round(sourceWidth * scale)
+  const height = Math.round(sourceHeight * scale)
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d', { willReadFrequently: true })
   if (!context) return null
-  context.drawImage(source, inputX, inputY, inputWidth, inputHeight, 0, 0, width, height)
+  context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height)
   if (isMostlyBlackFrame(context, width, height)) return null
   return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
-}
-
-function getScaledTabCaptureCrop(sourceWidth: number, sourceHeight: number) {
-  const TAB_CAPTURE_CROP = { x: 520, y: 0, width: 480, height: 845 }
-  const scaleX = sourceWidth / 1920
-  const scaleY = sourceHeight / 920
-  const x = clamp(Math.round(TAB_CAPTURE_CROP.x * scaleX), 0, sourceWidth - 1)
-  const y = clamp(Math.round(TAB_CAPTURE_CROP.y * scaleY), 0, sourceHeight - 1)
-  const width = clamp(Math.round(TAB_CAPTURE_CROP.width * scaleX), 80, sourceWidth - x)
-  const height = clamp(Math.round(TAB_CAPTURE_CROP.height * scaleY), 80, sourceHeight - y)
-  return { x, y, width, height }
 }
 
 function isMostlyBlackFrame(context: CanvasRenderingContext2D, width: number, height: number) {
@@ -443,10 +427,6 @@ function resampleToPcm16(input: Float32Array, inputSampleRate: number, outputSam
     view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
   }
   return buffer
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), Math.max(min, max))
 }
 
 defineExpose({
@@ -504,5 +484,3 @@ onBeforeUnmount(() => {
   opacity: 0.8;
 }
 </style>
-
-

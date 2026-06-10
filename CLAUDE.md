@@ -153,10 +153,10 @@ JLAO_YOLO_MODEL=
 JLAO_VLM_HTTP_URL=http://localhost:11434
 JLAO_VLM_HTTP_MODEL=llava
 
-# 语音转写（local = FunASR，aliyun = 阿里云 NLS）
+# 语音转写：只使用本地 FunASR
 STT_PROVIDER=local
-ALIYUN_STT_APP_KEY=
-ALIYUN_STT_TOKEN=
+NATIVE_STT_PROVIDER=local
+LOCAL_STT_ENGINE=funasr
 
 # 弹幕/翡翠 OCR 间隔
 JLAO_COMMENT_OCR_INTERVAL_SECONDS=0.5
@@ -194,7 +194,7 @@ JLAO_JADE_OPENCV_FILL=color-water
 2. 监控 2 小时，自动截图保存
 3. 筛选低置信度（1%-30%）和未检测到的图
 4. 人工筛选有价值的图（漏检样本）
-5. AI 图生图增强（OpenAI Image-2）
+5. 本地图像增强或人工扩增（不使用付费云端图生图）
 6. 标注后加入训练集
 7. 增量训练 YOLO
 

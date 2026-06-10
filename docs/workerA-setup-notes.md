@@ -1,7 +1,7 @@
 # WorkerA 配置与问题排查记录
 
 > 记录日期：2026-06-07
-> WorkerA 使用开源 FunASR，WorkerB 使用阿里云
+> WorkerA 使用开源 FunASR；付费云端语音/OCR 不再接入。
 
 ---
 
@@ -21,13 +21,12 @@ LOCAL_STT_CHUNK_SECONDS=4
 
 - 音频源：scrcpy `--audio-source=voice-performance`
 - 识别引擎：FunASR `paraformer-zh`（本地 CPU/GPU）
-- 默认 provider 保持 `aliyun`（兼容 WorkerB），WorkerA 通过 `.env` 覆盖为 `local`
+- provider 固定为 `local`，不再通过环境变量切换到付费云端。
 
 ### 关键代码修改
 
 **`backend/app/services/native_stt_service.py`**
-- 新增 `_NATIVE_STT_PROVIDER` 环境变量读取
-- `_create_native_stt()` 根据 provider 选择 `AliyunRealtimeStt` 或 `LocalChunkStt`
+- `_create_native_stt()` 固定选择 `LocalChunkStt`
 - `NativeSttTaskState.provider` 动态化
 - **注意**：`_NATIVE_STT_PROVIDER` 必须定义在 `NativeSttTaskState` 类之前（Python dataclass 默认值在类定义时求值）
 
@@ -114,8 +113,8 @@ cd D:\JLAO\backend
 
 | 项目 | WorkerA | WorkerB |
 |---|---|---|
-| STT Provider | `local` (FunASR) | `aliyun` |
+| STT Provider | `local` (FunASR) | 不使用 |
 | 本地模型 | `paraformer-zh` | 无 |
 | 前端代码 | 同一份，通过环境变量切换 | 同一份 |
 | 手机音频采集 | scrcpy `--audio-source=voice-performance` | 同上 |
-| 阿里云 Key | 无 | 已配置 |
+| 付费云端 Key | 无 | 不使用 |

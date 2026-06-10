@@ -16,7 +16,7 @@ import requests
 class SharedFileStorage:
     """共享文件存储"""
 
-    def __init__(self, base_url: str = "http://47.120.41.143:8001"):
+    def __init__(self, base_url: str = "http://127.0.0.1:8001"):
         self.base_url = base_url
         self.local_dir = Path("uploads/frames")
         self.local_dir.mkdir(parents=True, exist_ok=True)

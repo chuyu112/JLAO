@@ -1,4 +1,4 @@
-import { resolveApiBase } from '../src/api/baseResolver'
+import { resolveApiBase } from '../src/api/baseResolver.ts'
 
 const localBase = 'http://127.0.0.1:8000'
 
