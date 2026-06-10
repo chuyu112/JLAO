@@ -230,7 +230,7 @@ async function startWindowCapture(mode: CaptureMode) {
         width: { ideal: 1920 },
         height: { ideal: 1080 },
       } as MediaTrackConstraints,
-      audio: false,
+      audio: true,
       preferCurrentTab: false,
       selfBrowserSurface: 'exclude',
       systemAudio: 'exclude',
@@ -253,6 +253,12 @@ async function startWindowCapture(mode: CaptureMode) {
 
     message.success(audioActive.value ? '直播标签页画面和声音已接入；开始每秒截图识别' : '直播标签页画面已接入；开始每秒截图识别')
     startFrameCaptureLoop()
+
+    // 启动音频采集（如果有音频轨道）
+    if (audioActive.value) {
+      emit('startStt')
+      await startAudioStreaming(stream.value)
+    }
 
     const [videoTrack] = stream.value.getVideoTracks()
     if ('ImageCapture' in window && videoTrack) {

@@ -1,5 +1,6 @@
 ﻿import asyncio
 import audioop
+import logging
 import os
 import sys
 import time
@@ -8,14 +9,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.services.scrcpy_service import _get_scrcpy_exe
 from app.services.local_stt_service import LocalChunkStt, LocalSttNotConfigured
+from app.services.scrcpy_service import _get_scrcpy_exe
+from app.services.stt_service import AliyunRealtimeStt
 from app.services.transcript_service import append_transcript
 from app.state import WORKSPACE_DIR, app_state
 from app.ws.manager import manager
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+logger = logging.getLogger(__name__)
+
+_NATIVE_STT_PROVIDER = os.getenv("NATIVE_STT_PROVIDER", os.getenv("STT_PROVIDER", "aliyun")).lower()
+_NATIVE_STT_AUDIO_SOURCE = os.getenv("NATIVE_STT_AUDIO_SOURCE", "playback").lower()
 
 
 @dataclass
@@ -25,7 +32,7 @@ class NativeSttTaskState:
     chunk_seconds: int
     task: asyncio.Task[None]
     running: bool = True
-    provider: str = "local"
+    provider: str = _NATIVE_STT_PROVIDER
     last_error: str = ""
     audio_chunks: int = 0
     audio_bytes: int = 0
@@ -38,6 +45,12 @@ _ADB_RECONNECT_TIMEOUT_SECONDS = 30.0
 _AUDIO_RESTART_DELAY_SECONDS = 1.0
 native_stt_tasks: dict[str, NativeSttTaskState] = {}
 _DEFAULT_NATIVE_STT_DEVICE_KEY = "__default__"
+
+
+def _create_native_stt(on_partial, on_final, on_error):
+    if _NATIVE_STT_PROVIDER == "aliyun":
+        return AliyunRealtimeStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
+    return LocalChunkStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
 
 
 async def initialize_native_stt_runtime() -> None:
@@ -104,7 +117,7 @@ def status(session_id: str) -> dict[str, Any]:
         return {
             "running": False,
             "serial": "",
-            "provider": "local",
+            "provider": _NATIVE_STT_PROVIDER,
             "last_error": "",
             "audio_chunks": 0,
             "audio_bytes": 0,
@@ -131,26 +144,27 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
     stderr_task: asyncio.Task[None] | None = None
 
     async def on_partial(text: str) -> None:
+        logger.debug("[native-stt %s] partial: %s", session_id, text)
         await manager.broadcast(session_id, "transcript_partial", {"text": text})
 
     async def on_final(text: str) -> None:
+        logger.info("[native-stt %s] final: %s", session_id, text)
         segment = await append_transcript(session_id, text)
         task_state.transcript_segments += 1
         await manager.broadcast(session_id, "transcript_segment", segment.model_dump(mode="json"))
         await manager.broadcast(session_id, "transcript_partial", {"text": ""})
 
     async def on_error(message: str) -> None:
+        logger.warning("[native-stt %s] error: %s", session_id, message)
         task_state.last_error = message
         await manager.broadcast(session_id, "stt_error", {"message": message})
 
-    # 使用本地 STT（FunASR 或 faster-whisper），不用阿里云
-    stt = LocalChunkStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
-    await stt.connect()
-    provider = "local"
-    task_state.last_error = ""
-    await manager.broadcast(session_id, "stt_status", {"status": "connected", "provider": provider, "source": "native-scrcpy"})
-
+    stt = _create_native_stt(on_partial=on_partial, on_final=on_final, on_error=on_error)
     try:
+        await stt.connect()
+        task_state.last_error = ""
+        logger.info("[native-stt %s] STT connected provider=%s", session_id, task_state.provider)
+        await manager.broadcast(session_id, "stt_status", {"status": "connected", "provider": task_state.provider, "source": "native-scrcpy"})
         await manager.broadcast(session_id, "native_stt_status", status(session_id))
 
         scrcpy_exe = _get_scrcpy_exe()
@@ -160,6 +174,13 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
         while task_state.running:
             wav_path = chunk_dir / f"stream-{time.time_ns()}.wav"
             stderr_messages = []
+            logger.info(
+                "[native-stt %s] starting scrcpy audio capture: source=%s serial=%s path=%s",
+                session_id,
+                _NATIVE_STT_AUDIO_SOURCE,
+                serial or "(default)",
+                wav_path,
+            )
             process = await _start_audio_record_process(serial=serial, output_path=wav_path, scrcpy_exe=scrcpy_exe)
             stderr_task = asyncio.create_task(_collect_process_stderr(process, stderr_messages))
             try:
@@ -210,7 +231,7 @@ async def _native_stt_loop(session_id: str, serial: str, chunk_seconds: int) -> 
                 wav_path.unlink(missing_ok=True)
             except OSError:
                 pass
-        await manager.broadcast(session_id, "stt_status", {"status": "closed", "provider": provider, "source": "native-scrcpy"})
+        await manager.broadcast(session_id, "stt_status", {"status": "closed", "provider": task_state.provider, "source": "native-scrcpy"})
 
 
 async def _start_audio_record_process(serial: str, output_path: Path, scrcpy_exe: str | None = None) -> asyncio.subprocess.Process:
@@ -230,15 +251,24 @@ async def _start_audio_record_process(serial: str, output_path: Path, scrcpy_exe
 async def _stream_recorded_wav(
     process: asyncio.subprocess.Process,
     wav_path: Path,
-    stt: LocalChunkStt,
+    stt: AliyunRealtimeStt,
     task_state: NativeSttTaskState,
     stderr_messages: list[str],
 ) -> None:
     channels, sample_width, sample_rate, data_offset = await _wait_for_wav_stream_header(process, wav_path, stderr_messages)
+    logger.info(
+        "[native-stt %s] wav header ready: channels=%d sample_width=%d sample_rate=%d data_offset=%d",
+        task_state.session_id,
+        channels,
+        sample_width,
+        sample_rate,
+        data_offset,
+    )
     block_align = channels * sample_width
     read_offset = data_offset
     pending = b""
     rate_state: Any = None
+    log_counter = 0
 
     while task_state.running:
         if process.returncode is not None:
@@ -273,6 +303,15 @@ async def _stream_recorded_wav(
         task_state.audio_chunks += 1
         task_state.audio_bytes += len(pcm)
         task_state.last_error = ""
+        log_counter += 1
+        if log_counter == 1 or log_counter % 25 == 0:
+            logger.info(
+                "[native-stt %s] streaming audio chunks=%d bytes=%d pending=%d",
+                task_state.session_id,
+                task_state.audio_chunks,
+                task_state.audio_bytes,
+                len(pending),
+            )
         await _send_pcm_frames(stt, pcm)
         await manager.broadcast(task_state.session_id, "native_stt_status", status(task_state.session_id))
 
@@ -434,7 +473,7 @@ async def _close_stale_native_audio_processes() -> None:
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.Name -ieq 'scrcpy.exe' "
         "-and $_.CommandLine -like '*--no-video*' "
-        "-and $_.CommandLine -like '*--audio-source=voice-performance*' } | "
+        "-and $_.CommandLine -like '*--record-format*wav*' } | "
         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
     )
     try:
@@ -491,7 +530,7 @@ def _build_audio_record_command(scrcpy_exe: str, serial: str, output_path: Path,
         "--no-video",
         "--no-window",
         "--no-audio-playback",
-        "--audio-source=voice-performance",
+        f"--audio-source={_NATIVE_STT_AUDIO_SOURCE}",
         "--audio-codec=raw",
         "--record",
         str(output_path),
@@ -504,8 +543,13 @@ def _build_audio_record_command(scrcpy_exe: str, serial: str, output_path: Path,
     return command
 
 
-async def _send_pcm_frames(stt: LocalChunkStt, pcm: bytes) -> None:
-    frame_size = 3200
+# 阿里云 NLS 建议每帧 20ms：16000Hz * 2 bytes * 0.02s = 640 bytes
+# 本地 STT（FunASR）会自行缓冲，小帧也不会影响。
+_ALIYUN_STT_FRAME_SIZE = 640
+
+
+async def _send_pcm_frames(stt: AliyunRealtimeStt, pcm: bytes) -> None:
+    frame_size = _ALIYUN_STT_FRAME_SIZE
     for offset in range(0, len(pcm), frame_size):
         await stt.send_audio(pcm[offset : offset + frame_size])
 

@@ -13,7 +13,7 @@ from app.services.jade_training_service import class_names_from_feedback
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_FEEDBACK_PATH = WORKSPACE_DIR / "data" / "jade_feedback.jsonl"
-MIN_LIVE_SAMPLE_CONFIDENCE = 0.32
+MIN_LIVE_SAMPLE_CONFIDENCE = 0.0
 MIN_SECONDS_BETWEEN_SAME_SAMPLE = 12.0
 RELIABLE_WEAK_CLASS_SOURCES = {
     "feedback-learning",

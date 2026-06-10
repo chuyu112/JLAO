@@ -25,9 +25,10 @@
             :session-id="store.currentSession?.id || null"
             :source-active="ownSourceActive"
             :source-blocked="store.isCaptureModeBlocked('own')"
-            @start-stt="store.connectStt"
-            @stop-stt="store.disconnectStt"
-            @audio-frame="store.sendSttAudio"
+            :native-stt-running="Boolean(store.nativeSttInfo?.running)"
+            @start-stt="onStartStt"
+            @stop-stt="onStopStt"
+            @audio-frame="onSendSttAudio"
             @capture-state-change="handleYoloCaptureStateChange"
           />
         </section>
@@ -43,9 +44,9 @@
             :session-id="store.currentSession?.id || null"
             :manual-product-name="store.currentSession?.manual_product_name || ''"
             @update="store.updateLiveUrl"
-            @start-stt="store.connectStt"
-            @stop-stt="store.disconnectStt"
-            @audio-frame="store.sendSttAudio"
+            @start-stt="onStartStt"
+            @stop-stt="onStopStt"
+            @audio-frame="onSendSttAudio"
             @capture-frame="store.uploadCaptureFrame"
           />
         </div>
@@ -116,6 +117,22 @@ import VirtualCustomerPanel from '../components/VirtualCustomerPanel.vue'
 import { useJlaoStore } from '../stores/jlao'
 import type { Product } from '../types'
 
+function onStartStt() {
+  // Native STT 已运行时，不要再启动浏览器采集的 WebSocket STT，避免双重识别。
+  if (store.nativeSttInfo?.running) return
+  store.connectStt()
+}
+
+function onStopStt() {
+  if (store.nativeSttInfo?.running) return
+  store.disconnectStt()
+}
+
+function onSendSttAudio(frame: ArrayBuffer) {
+  if (store.nativeSttInfo?.running) return
+  store.sendSttAudio(frame)
+}
+
 const store = useJlaoStore()
 const message = useMessage()
 const liveSourcePanel = ref<InstanceType<typeof LiveSourcePanel> | null>(null)
@@ -164,7 +181,11 @@ async function handleStart() {
     await store.startPhoneCaptureSession()
     await new Promise((resolve) => window.setTimeout(resolve, 1200))
     await store.refreshPhoneCaptureStatus()
-    await store.stopNativeSttSession()
+    try {
+      await store.startNativeSttSession()
+    } catch (e: any) {
+      console.warn('Native STT 启动失败:', e)
+    }
 
     const phoneCaptureReady = Boolean(store.phoneCaptureInfo?.running && !store.phoneCaptureInfo?.last_error)
 

@@ -39,7 +39,7 @@ class ScrcpyLaunch:
 
 scrcpy_tasks: dict[str, ScrcpyTaskState] = {}
 scrcpy_clients: dict[str, list[Any]] = {}
-SCRCPY_MAX_SIZE = 0  # 0 表示不限制，保持原始分辨率
+SCRCPY_MAX_SIZE = 1080  # 限制最大边长 1080，防止窗口超出屏幕
 WINDOWS_DRIVER_ROOT = "D:\\"
 
 
@@ -212,6 +212,7 @@ def _build_scrcpy_command(
     if record_path:
         command.extend(["--record", str(record_path), "--record-format", "mp4"])
     command.extend(["--window-title", f"JLAO 投屏 - {cleaned_serial or '默认设备'}"])
+    command.extend(["--window-x", "0", "--window-y", "0"])
     return ScrcpyLaunch(command=command, cwd=None, mode="scrcpy")
 
 def _new_recording_path(session_id: str) -> tuple[Path, str]:

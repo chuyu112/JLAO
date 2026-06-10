@@ -46,27 +46,28 @@ _NOISE_CONTAINS = (
     "电池",
     "时间",
     ":",
+    "电池",
 )
 
 
 async def update_live_room_name_from_frame(session_id: str, image_path: Path) -> str:
-    if not _should_detect_room_name(session_id):
-        return app_state.sessions.get(session_id).live_room_name if session_id in app_state.sessions else ""
-
-    _session_last_room_ocr_at[session_id] = time.monotonic()
-    room_name = await detect_live_room_name_from_frame(image_path)
-    if not room_name:
-        return app_state.sessions.get(session_id).live_room_name if session_id in app_state.sessions else ""
-
+    """更新直播间名称 - 从截图 OCR 自动识别"""
     session = app_state.sessions.get(session_id)
-    if not session or session.live_room_name == room_name:
-        return room_name
+    if not session:
+        return ""
 
-    updated = session.model_copy(update={"live_room_name": room_name, "updated_at": datetime.now(timezone.utc)})
+    detected = await detect_live_room_name_from_frame(image_path)
+    if not detected:
+        return session.live_room_name
+
+    if session.live_room_name == detected:
+        return detected
+
+    updated = session.model_copy(update={"live_room_name": detected, "updated_at": datetime.now(timezone.utc)})
     app_state.sessions[session_id] = updated
     save_live_session(updated)
     await manager.broadcast(session_id, "session_status", updated.model_dump(mode="json"))
-    return room_name
+    return detected
 
 
 async def detect_live_room_name_from_frame(image_path: Path) -> str:
@@ -84,9 +85,13 @@ def extract_live_room_name(lines: Iterable[str]) -> str:
     known_names, canonical_by_label = live_room_catalog()
     for line in lines:
         candidate = _clean_room_name_line(line)
+        # 优先匹配已知直播间名
         for known_name in known_names:
             if known_name in candidate:
                 return canonical_by_label.get(known_name, known_name)
+        # 如果包含"浅玩翡翠"，直接返回固定名称
+        if "浅玩翡翠" in candidate:
+            return "浅玩翡翠-2号店"
         if _is_valid_room_name(candidate):
             return candidate
     return ""
