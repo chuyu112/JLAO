@@ -88,6 +88,16 @@ interface State {
   captureStartupMode: CaptureMode | null
 }
 
+function cleanLiveRoomNameForDisplay(value: string): string {
+  const compact = value.replace(/\s+/g, '')
+  if (!compact) return ''
+  const hasCarrier = /中国移动|中国联通|中国电信|移动|联通|电信/.test(compact)
+  const hasStatusMarker = /HD|5G|4G|VoLTE|volte|WiFi|wifi|LTE/.test(compact)
+  const hasRoomKeyword = /翡翠|珠宝|玉|手镯|寄售|回流|定制|闲置/.test(compact)
+  if (hasCarrier && (hasStatusMarker || !hasRoomKeyword)) return ''
+  return value.trim()
+}
+
 export const useJlaoStore = defineStore('jlao', {
   state: (): State => ({
     products: [],
@@ -123,6 +133,9 @@ export const useJlaoStore = defineStore('jlao', {
   }),
 
   getters: {
+    liveRoomNameLabel(state): string {
+      return cleanLiveRoomNameForDisplay(state.currentSession?.live_room_name || '') || '待识别直播间名'
+    },
     currentProduct(state): Product | null {
       if (!state.currentSession?.current_product_id) return state.products[0] || null
       return state.products.find((item) => item.id === state.currentSession?.current_product_id) || null

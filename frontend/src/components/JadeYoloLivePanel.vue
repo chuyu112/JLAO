@@ -25,7 +25,7 @@
             <circle v-else :size="16" />
             {{ isRecording ? '停止录屏' : '录屏' }}
           </button>
-          <button @click="stopCapture" class="jlao-btn jlao-btn-stop">
+          <button @click="() => stopCapture()" class="jlao-btn jlao-btn-stop">
             <square :size="14" />
             停止
           </button>
@@ -93,8 +93,8 @@ const emit = defineEmits<{
 
 const DETECT_INTERVAL_MS = 200
 const MAX_CAPTURE_WIDTH = 1920
-const DISPLAY_CANDIDATE_MIN_CONFIDENCE = 0.05
-const DISPLAY_CONFIRMED_MIN_CONFIDENCE = 0.15
+const DISPLAY_CANDIDATE_MIN_CONFIDENCE = 0.01
+const DISPLAY_CONFIRMED_MIN_CONFIDENCE = 0.03
 
 const message = useMessage()
 const stageRef = ref<HTMLDivElement | null>(null)
@@ -115,7 +115,10 @@ const audioProcessor = ref<ScriptProcessorNode | null>(null)
 const audioSource = ref<MediaStreamAudioSourceNode | null>(null)
 const lastResult = ref<JadeYoloLiveDetectionResult | null>(null)
 const lastDetections = ref<JadeYoloLiveDetection[]>([])
+const lastCandidates = ref<JadeYoloLiveDetection[]>([])
 const displayDetections = computed(() => lastDetections.value.filter((detection) => isDisplayableDetection(detection)))
+const displayCandidates = computed(() => lastCandidates.value.filter((detection) => isDisplayableDetection(detection)))
+const overlayDetections = computed(() => displayDetections.value.length ? displayDetections.value : displayCandidates.value)
 const lastTiming = computed(() => lastResult.value?.timings || null)
 const lastTracking = computed(() => lastResult.value?.tracking || null)
 const lastImageSize = ref({ width: 0, height: 0 })
@@ -135,21 +138,29 @@ const statusLabel = computed(() => {
 
 const detectionLabel = computed(() => {
   const count = displayDetections.value.length
+  const candidateCount = displayCandidates.value.length
   const tracking = lastTracking.value
   if (!captureActive.value) return '-'
   if (!lastResult.value) return '等待'
+  if (count) {
+    const best = bestDetection(displayDetections.value)
+    if (!best) return '未确认'
+    if (best.tracking_state === 'lost') return `保持 ${best.lost_frames || 0} 帧`
+    if (best.confidence < DISPLAY_CONFIRMED_MIN_CONFIDENCE) {
+      return `弱确认 ${count} 个 · ${Math.round(best.confidence * 100)}%`
+    }
+    return `${count} 个 · ${Math.round(best.confidence * 100)}%`
+  }
+  if (candidateCount) {
+    const best = bestDetection(displayCandidates.value)
+    return `候选 ${candidateCount} 个 · ${Math.round((best?.confidence || 0) * 100)}%`
+  }
   if (!count && tracking?.status === 'pending') {
     return `候选 ${tracking.stable_frames || 0}/${tracking.confirm_frames || 3}`
   }
   if (!count && lastDetections.value.length) return '待确认'
   if (!count) return '未确认'
-  const best = bestDetection(displayDetections.value)
-  if (!best) return '未确认'
-  if (best.tracking_state === 'lost') return `保持 ${best.lost_frames || 0} 帧`
-  if (best.confidence < DISPLAY_CONFIRMED_MIN_CONFIDENCE) {
-    return `候选中 ${count} 个 · ${Math.round(best.confidence * 100)}%`
-  }
-  return `${count} 个 · ${Math.round(best.confidence * 100)}%`
+  return '未确认'
 })
 
 const audioLabel = computed(() => {
@@ -208,7 +219,7 @@ async function startCapture(): Promise<boolean> {
     }
 
     const [videoTrack] = stream.value.getVideoTracks()
-    videoTrack?.addEventListener('ended', stopCapture)
+    videoTrack?.addEventListener('ended', handleVideoTrackEnded)
     for (const audioTrack of stream.value.getAudioTracks()) {
       audioTrack.addEventListener('ended', () => {
         audioActive.value = false
@@ -240,7 +251,14 @@ async function startCapture(): Promise<boolean> {
   }
 }
 
-function stopCapture() {
+function handleVideoTrackEnded() {
+  if (!captureActive.value) return
+  stopCapture({ keepError: true })
+  lastError.value = '视频流已断开，请重新接入'
+  message.warning('视频流已断开；投屏恢复后请重新点击“接入视频流”')
+}
+
+function stopCapture(options: { keepError?: boolean } = {}) {
   const wasActive = captureActive.value
   stopDetectionLoop()
   stopAudioStreaming()
@@ -252,9 +270,11 @@ function stopCapture() {
   detecting.value = false
   audioActive.value = false
   lastDetections.value = []
+  lastCandidates.value = []
   lastResult.value = null
   lastImageSize.value = { width: 0, height: 0 }
   if (videoRef.value) videoRef.value.srcObject = null
+  if (!options.keepError) lastError.value = ''
   clearOverlay()
   if (wasActive) emit('captureStateChange', false)
 }
@@ -467,6 +487,7 @@ async function detectCurrentFrame() {
     if (!captureActive.value) return
     lastResult.value = result
     lastDetections.value = result.detections || []
+    lastCandidates.value = result.candidates || []
     lastImageSize.value = {
       width: result.image_width || 0,
       height: result.image_height || 0,
@@ -538,12 +559,13 @@ function drawOverlay() {
 
   context.font = '700 13px Arial'
 
-  for (const detection of displayDetections.value) {
+  for (const detection of overlayDetections.value) {
     const isLost = detection.tracking_state === 'lost'
-    context.lineWidth = isLost ? 2 : 3
-    context.setLineDash(isLost ? [7, 5] : [])
-    context.strokeStyle = isLost ? '#8fa6af' : '#18c779'
-    context.fillStyle = isLost ? '#8fa6af' : '#18c779'
+    const isCandidate = !detection.confirmed && detection.tracking_state !== 'confirmed'
+    context.lineWidth = isLost ? 2 : isCandidate ? 2 : 3
+    context.setLineDash(isLost ? [7, 5] : isCandidate ? [5, 4] : [])
+    context.strokeStyle = isLost ? '#8fa6af' : isCandidate ? '#f59e0b' : '#18c779'
+    context.fillStyle = isLost ? '#8fa6af' : isCandidate ? '#f59e0b' : '#18c779'
     const [x1, y1, x2, y2] = detection.box
     const left = offsetX + x1 * scale
     const top = offsetY + y1 * scale

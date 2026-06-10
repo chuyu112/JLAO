@@ -30,6 +30,14 @@ _NOISE_EXACT = {
     "推荐",
 }
 _NOISE_CONTAINS = (
+    "中国移动",
+    "中国联通",
+    "中国电信",
+    "移动HD",
+    "联通HD",
+    "电信HD",
+    "VoLTE",
+    "volte",
     "在线",
     "人看过",
     "看过",
@@ -60,6 +68,8 @@ _ROOM_NAME_OCR_REPLACEMENTS = (
 )
 _ROOM_NAME_KEYWORDS = ("翡翠", "珠宝", "玉", "手镯", "寄售", "回流", "定制", "闲置", "珠宝")
 _ROOM_NAME_BAD_OCR_CHARS = set("虱躅")
+_PHONE_STATUS_CARRIER_TERMS = ("中国移动", "中国联通", "中国电信", "移动", "联通", "电信")
+_PHONE_STATUS_MARKERS = ("HD", "5G", "4G", "VoLTE", "volte", "WiFi", "wifi", "LTE")
 
 
 async def update_live_room_name_from_frame(session_id: str, image_path: Path) -> str:
@@ -138,7 +148,7 @@ def _read_live_room_name_region_variants(image_path: Path) -> list[bytes]:
         configs = [
             (int(width * 0.08), int(height * 0.055), int(width * 0.62), int(height * 0.115)),
             (int(width * 0.05), int(height * 0.045), int(width * 0.68), int(height * 0.13)),
-            (0, 0, int(width * 0.72), int(height * 0.16)),
+            (int(width * 0.04), int(height * 0.06), int(width * 0.72), int(height * 0.16)),
         ]
         variants: list[bytes] = []
         for box in configs:
@@ -172,6 +182,8 @@ def _is_valid_room_name(value: str) -> bool:
         return False
     if any(marker in value for marker in _NOISE_CONTAINS):
         return False
+    if _looks_like_phone_status_bar(value):
+        return False
     if _looks_like_status_time(value):
         return False
     if value.startswith("+") or "关氵" in value:
@@ -183,6 +195,20 @@ def _is_valid_room_name(value: str) -> bool:
     if re.search(r"[?？!！]", value):
         return False
     return True
+
+
+def _looks_like_phone_status_bar(value: str) -> bool:
+    compact = re.sub(r"\s+", "", value)
+    if not compact:
+        return False
+    has_carrier = any(term in compact for term in _PHONE_STATUS_CARRIER_TERMS)
+    if not has_carrier:
+        return False
+    if any(keyword in compact for keyword in _ROOM_NAME_KEYWORDS):
+        return False
+    carrier_count = sum(1 for term in ("中国移动", "中国联通", "中国电信") if term in compact)
+    has_status_marker = any(marker in compact for marker in _PHONE_STATUS_MARKERS)
+    return carrier_count >= 1 or has_status_marker
 
 
 def _looks_like_status_time(value: str) -> bool:

@@ -774,6 +774,9 @@ export interface ScrcpyDeviceInfo {
   width: number
   height: number
   recording_path: string
+  reconnecting?: boolean
+  reconnect_attempts?: number
+  last_exit_code?: number | null
 }
 
 export interface PhoneCaptureInfo {

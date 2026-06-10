@@ -14,7 +14,7 @@
           @update:value="handlePlatformChange"
         />
         <n-tag v-if="selectedPlatform === '视频号'" type="success" size="small">
-          {{ store.currentSession?.live_room_name || '待识别直播间名' }}
+          {{ store.liveRoomNameLabel }}
         </n-tag>
       </div>
 

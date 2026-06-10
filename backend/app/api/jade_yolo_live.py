@@ -27,7 +27,7 @@ def _float_env(name: str, default: float) -> float:
 
 
 router = APIRouter()
-LIVE_YOLO_MIN_CONFIDENCE = _float_env("JLAO_LIVE_YOLO_MIN_CONFIDENCE", 0.05)
+LIVE_YOLO_MIN_CONFIDENCE = _float_env("JLAO_LIVE_YOLO_MIN_CONFIDENCE", 0.01)
 LIVE_YOLO_ROI = (0.0, 0.0, 1.0, 1.0)
 LIVE_YOLO_CONFIRM_FRAMES = 3
 LIVE_YOLO_HOLD_FRAMES = 10
@@ -60,19 +60,19 @@ LIVE_YOLO_SNAPSHOT_MANIFEST_FIELDS = [
 ]
 LIVE_YOLO_SNAPSHOT_PETS = (
     "\n".join((
-        "▐▛███▜▌   ",
-        "▝▜█████▛▘  ",
-        "  ▘▘ ▝▝",
+        r" /\_/\ ",
+        r"( o.o )",
+        r" > ^ < ",
     )),
     "\n".join((
-        " ▟████▙ ",
-        "▐██████▌",
-        " ▘▘  ▝▝ ",
+        r"  __  ",
+        r" (oo) ",
+        "/|__|\\",
     )),
     "\n".join((
-        "▗▛███▜▖",
-        "▝█████▘",
-        "  ▚  ▞ ",
+        r" .-. ",
+        r"(o o)",
+        r"| O |",
     )),
 )
 
@@ -274,6 +274,7 @@ class LiveJadeTracker:
 
 _live_trackers: dict[str, LiveJadeTracker] = {}
 _live_snapshot_states: dict[str, LiveYoloSnapshotState] = {}
+_live_yolo_debug_logged_at: dict[str, float] = {}
 
 
 @router.post("/sessions/{session_id}/jade-yolo/detect-frame")
@@ -308,6 +309,7 @@ async def detect_jade_yolo_frame(session_id: str, file: UploadFile = File(...)) 
         )
         tracking = _tracker_for_session(session_id).update(candidate_dicts)
         yolo_ms = (time.perf_counter() - yolo_started_at) * 1000
+        _log_live_yolo_debug(session_id, candidate_dicts, tracking, runtime)
 
         return {
             "status": "ok",
@@ -364,6 +366,31 @@ def _detect_live_jade_candidates(
         },
     }
     return detection_dicts, runtime
+
+
+def _log_live_yolo_debug(
+    session_id: str,
+    candidates: list[dict[str, Any]],
+    tracking: LiveYoloTrackingUpdate,
+    runtime: dict[str, Any],
+) -> None:
+    now = time.monotonic()
+    last_logged = _live_yolo_debug_logged_at.get(session_id, 0.0)
+    if now - last_logged < 2.0:
+        return
+    _live_yolo_debug_logged_at[session_id] = now
+
+    top = max(candidates, key=lambda item: float(item.get("confidence") or 0), default=None)
+    top_label = str(top.get("label") or "none") if top else "none"
+    top_conf = float(top.get("confidence") or 0) if top else 0.0
+    print(
+        f"[yolo-live {session_id}] candidates={len(candidates)} "
+        f"top={top_label}:{top_conf:.3f} "
+        f"tracking={tracking.tracking.get('status')} "
+        f"confirmed={len(tracking.detections)} "
+        f"min_conf={LIVE_YOLO_MIN_CONFIDENCE:.3f} "
+        f"model={Path(str(runtime.get('model_path') or '')).name or runtime.get('reason') or 'unknown'}"
+    )
 
 
 def _maybe_save_live_snapshot(session_id: str, image_path: Path, *, width: int, height: int) -> dict[str, Any]:

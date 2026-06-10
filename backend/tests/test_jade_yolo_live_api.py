@@ -8,29 +8,22 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.api import jade_yolo_live
-from app.services.jade_yolo_service import DEFAULT_YOLO_MIN_CONFIDENCE
 
 
 def test_live_yolo_filters_unreliable_stream_noise():
-    assert jade_yolo_live.LIVE_YOLO_MIN_CONFIDENCE == DEFAULT_YOLO_MIN_CONFIDENCE
-    assert jade_yolo_live.LIVE_YOLO_MIN_CONFIDENCE == 0.15
+    assert jade_yolo_live.LIVE_YOLO_MIN_CONFIDENCE == 0.01
 
     source = inspect.getsource(jade_yolo_live._detect_live_jade_candidates)
     assert "min_confidence=LIVE_YOLO_MIN_CONFIDENCE" in source
 
 
-def test_live_yolo_detects_in_subject_roi_and_remaps_boxes():
-    assert jade_yolo_live.LIVE_YOLO_ROI == (0.0, 0.12, 0.92, 0.84)
+def test_live_yolo_detects_full_frame_and_keeps_boxes():
+    assert jade_yolo_live.LIVE_YOLO_ROI == (0.0, 0.0, 1.0, 1.0)
 
-    assert jade_yolo_live._live_yolo_roi_box(461, 1024) == (0, 122, 424, 860)
+    assert jade_yolo_live._live_yolo_roi_box(461, 1024) == (0, 0, 461, 1024)
 
-    detection = jade_yolo_live._remap_live_detection(
-        {"label": "jade", "confidence": 0.12, "box": [10, 20, 110, 220]},
-        offset_x=0,
-        offset_y=122,
-    )
-    assert detection["box"] == [10, 142, 110, 342]
-
+    source = inspect.getsource(jade_yolo_live._detect_live_jade_candidates)
+    assert '"mode": "full-frame"' in source
     source = inspect.getsource(jade_yolo_live.detect_jade_yolo_frame)
     assert "_detect_live_jade_candidates" in source
 

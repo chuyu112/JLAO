@@ -21,13 +21,17 @@ class ScrcpyTaskState:
     serial: str
     max_size: int
     bit_rate: int
-    process: asyncio.subprocess.Process
-    task: asyncio.Task[None]
+    process: asyncio.subprocess.Process | None = None
+    task: asyncio.Task[None] | None = None
     running: bool = True
+    reconnecting: bool = False
+    reconnect_attempts: int = 0
+    last_exit_code: int | None = None
     last_error: str = ""
     width: int = 0
     height: int = 0
     recording_path: str = ""
+    mode: str = ""
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,9 @@ scrcpy_tasks: dict[str, ScrcpyTaskState] = {}
 scrcpy_clients: dict[str, list[Any]] = {}
 SCRCPY_MAX_SIZE = 1080  # 限制最大边长 1080，防止窗口超出屏幕
 WINDOWS_DRIVER_ROOT = "D:\\"
+SCRCPY_RECONNECT_INITIAL_DELAY_SECONDS = 2.0
+SCRCPY_RECONNECT_MAX_DELAY_SECONDS = 15.0
+SCRCPY_ADB_RECONNECT_TIMEOUT_SECONDS = 45.0
 
 
 if sys.platform == "win32":
@@ -165,6 +172,14 @@ def _get_qtscrcpy_exe() -> str | None:
     return _find_existing(_QTSCRCPY_CANDIDATES)
 
 
+def _ensure_scrcpy_driver_available() -> None:
+    if _user_scrcpy_path:
+        return
+    if _get_scrcpy_exe() or _get_qtscrcpy_exe():
+        return
+    raise FileNotFoundError("未找到 scrcpy.exe 或 QtScrcpy.exe，请安装命令行 scrcpy，或保留仓库内 QtScrcpy。")
+
+
 def _format_bit_rate(bit_rate: int) -> str:
     if bit_rate >= 1_000_000 and bit_rate % 1_000_000 == 0:
         return f"{bit_rate // 1_000_000}M"
@@ -245,27 +260,172 @@ async def _read_stderr(proc: asyncio.subprocess.Process, session_id: str) -> str
     return "\n".join(messages[-10:])
 
 
-async def _scrcpy_monitor(session_id: str, proc: asyncio.subprocess.Process) -> None:
-    stderr_task = asyncio.create_task(_read_stderr(proc, session_id))
+async def _scrcpy_supervisor(session_id: str) -> None:
+    task_state = scrcpy_tasks.get(session_id)
+    if not task_state:
+        return
+
+    reconnect_delay = SCRCPY_RECONNECT_INITIAL_DELAY_SECONDS
+    first_launch = True
     try:
-        return_code = await proc.wait()
-        stderr_text = await stderr_task
-        task_state = scrcpy_tasks.get(session_id)
-        if not task_state:
-            return
+        while task_state.running:
+            if not first_launch:
+                task_state.reconnecting = True
+                task_state.last_error = "投屏已断开，正在自动重连..."
 
-        task_state.running = False
-        if return_code != 0:
-            task_state.last_error = stderr_text or f"scrcpy 已退出，退出码：{return_code}"
-        elif not task_state.last_error:
-            task_state.last_error = "scrcpy 窗口已关闭"
-    except asyncio.CancelledError:
-        stderr_task.cancel()
-        raise
+            launch: ScrcpyLaunch | None = None
+            record_path: Path | None = None
+            stderr_task: asyncio.Task[str] | None = None
+            proc: asyncio.subprocess.Process | None = None
+            try:
+                record_path, record_url = _new_recording_path(session_id)
+                launch = _build_scrcpy_command(task_state.serial, task_state.max_size, task_state.bit_rate, record_path=record_path)
+                task_state.mode = launch.mode
+                task_state.recording_path = record_url if launch.mode == "scrcpy" else ""
+                print(f"[scrcpy {session_id}] Starting native window ({launch.mode}): {' '.join(launch.command)}")
+
+                proc = await asyncio.create_subprocess_exec(
+                    *launch.command,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=launch.cwd,
+                )
+                task_state.process = proc
+                stderr_task = asyncio.create_task(_read_stderr(proc, session_id))
+
+                await asyncio.sleep(0.8)
+                if proc.returncode is None:
+                    task_state.reconnecting = False
+                    task_state.last_exit_code = None
+                    task_state.last_error = ""
+                    reconnect_delay = SCRCPY_RECONNECT_INITIAL_DELAY_SECONDS
+                    if not first_launch:
+                        print(f"[scrcpy {session_id}] Reconnected after {task_state.reconnect_attempts} attempt(s)")
+                    if launch.mode == "scrcpy" and record_path is not None:
+                        _archive_recording(session_id, task_state, record_path)
+
+                return_code = await proc.wait()
+                stderr_text = await stderr_task
+                task_state.last_exit_code = return_code
+                if task_state.process is proc:
+                    task_state.process = None
+
+                if not task_state.running:
+                    break
+
+                if launch.mode != "scrcpy":
+                    task_state.running = False
+                    task_state.reconnecting = False
+                    task_state.last_error = stderr_text or "QtScrcpy 窗口已关闭"
+                    break
+
+                task_state.reconnect_attempts += 1
+                if return_code != 0:
+                    task_state.last_error = stderr_text or f"scrcpy 已退出，退出码：{return_code}，正在自动重连..."
+                else:
+                    task_state.last_error = "scrcpy 窗口已关闭，正在自动重连..."
+                task_state.reconnecting = True
+                print(
+                    f"[scrcpy {session_id}] exited code={return_code}; "
+                    f"auto reconnect attempt={task_state.reconnect_attempts} delay={reconnect_delay:.0f}s"
+                )
+            except asyncio.CancelledError:
+                if stderr_task:
+                    stderr_task.cancel()
+                raise
+            except Exception as exc:
+                task_state.process = None
+                task_state.reconnect_attempts += 1
+                task_state.reconnecting = True
+                task_state.last_error = f"投屏启动失败，正在自动重连：{exc}"
+                print(f"[scrcpy {session_id}] start failed; auto reconnect attempt={task_state.reconnect_attempts}: {exc}")
+
+            if not task_state.running:
+                break
+
+            await _recover_scrcpy_before_retry(task_state, reconnect_delay)
+            reconnect_delay = min(SCRCPY_RECONNECT_MAX_DELAY_SECONDS, reconnect_delay * 1.5)
+            first_launch = False
+    finally:
+        task_state.reconnecting = False
 
 
-async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
-    if proc.returncode is not None:
+def _archive_recording(session_id: str, task_state: ScrcpyTaskState, record_path: Path) -> None:
+    save_capture_archive(
+        CaptureArchiveItem(
+            id=f"arch-rec-{session_id}-{record_path.stem}",
+            session_id=session_id,
+            artifact_type="video",
+            source="scrcpy-record",
+            path=task_state.recording_path,
+            content="",
+            metadata={
+                "serial": task_state.serial,
+                "max_size": task_state.max_size,
+                "bit_rate": task_state.bit_rate,
+                "format": "mp4",
+                "audio": "playback",
+                "auto_reconnect": True,
+                "reconnect_attempts": task_state.reconnect_attempts,
+            },
+        )
+    )
+
+
+async def _recover_scrcpy_before_retry(task_state: ScrcpyTaskState, delay_seconds: float) -> None:
+    scrcpy_exe = _get_scrcpy_exe()
+    if scrcpy_exe:
+        try:
+            await _recover_adb_device(task_state.serial, scrcpy_exe)
+        except Exception as exc:
+            task_state.last_error = f"ADB 自动重连失败，继续等待：{exc}"
+            print(f"[scrcpy {task_state.session_id}] adb recover failed: {exc}")
+    await asyncio.sleep(delay_seconds)
+
+
+async def _recover_adb_device(serial: str, scrcpy_exe: str) -> None:
+    adb_exe = _adb_exe_for_scrcpy(scrcpy_exe)
+    await _run_adb_command(adb_exe, serial, ["reconnect", "offline"], timeout=10.0, allow_failure=True)
+    await _run_adb_command(adb_exe, serial, ["reconnect", "device"], timeout=10.0, allow_failure=True)
+    await _run_adb_command(adb_exe, serial, ["wait-for-device"], timeout=SCRCPY_ADB_RECONNECT_TIMEOUT_SECONDS)
+
+
+def _adb_exe_for_scrcpy(scrcpy_exe: str) -> str:
+    candidate = Path(scrcpy_exe).with_name("adb.exe" if sys.platform == "win32" else "adb")
+    if candidate.exists():
+        return str(candidate)
+    return "adb"
+
+
+async def _run_adb_command(
+    adb_exe: str,
+    serial: str,
+    args: list[str],
+    timeout: float,
+    allow_failure: bool = False,
+) -> None:
+    command = [adb_exe]
+    if serial:
+        command.extend(["-s", serial])
+    command.extend(args)
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise RuntimeError("等待手机 ADB 自动重连超时") from exc
+    if process.returncode != 0 and not allow_failure:
+        message = (stderr or stdout).decode("utf-8", errors="ignore").strip()
+        raise RuntimeError(message or f"ADB 自动重连失败，退出码：{process.returncode}")
+
+
+async def _terminate_process(proc: asyncio.subprocess.Process | None) -> None:
+    if proc is None or proc.returncode is not None:
         return
     try:
         proc.terminate()
@@ -290,58 +450,18 @@ async def start_scrcpy(
     await stop_scrcpy(session_id)
 
     effective_max_size = SCRCPY_MAX_SIZE
-    record_path, record_url = _new_recording_path(session_id)
-    launch = _build_scrcpy_command(serial, effective_max_size, bit_rate, record_path=record_path)
     cleaned_serial = serial.strip()
-    print(f"[scrcpy {session_id}] Starting native window ({launch.mode}): {' '.join(launch.command)}")
-
-    proc = await asyncio.create_subprocess_exec(
-        *launch.command,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=launch.cwd,
-    )
-
-    task = asyncio.create_task(_scrcpy_monitor(session_id, proc))
-    scrcpy_tasks[session_id] = ScrcpyTaskState(
+    _ensure_scrcpy_driver_available()
+    task_state = ScrcpyTaskState(
         session_id=session_id,
         serial=cleaned_serial,
         max_size=effective_max_size,
         bit_rate=bit_rate,
-        process=proc,
-        task=task,
-        recording_path=record_url if launch.mode == "scrcpy" else "",
     )
+    scrcpy_tasks[session_id] = task_state
+    task_state.task = asyncio.create_task(_scrcpy_supervisor(session_id))
 
     await asyncio.sleep(0.8)
-    if proc.returncode is not None:
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        current = status(session_id)
-        scrcpy_tasks.pop(session_id, None)
-        return current
-
-    if launch.mode == "scrcpy":
-        save_capture_archive(
-            CaptureArchiveItem(
-                id=f"arch-rec-{session_id}-{record_path.stem}",
-                session_id=session_id,
-                artifact_type="video",
-                source="scrcpy-record",
-                path=record_url,
-                content="",
-                metadata={
-                    "serial": cleaned_serial,
-                    "max_size": effective_max_size,
-                    "bit_rate": bit_rate,
-                    "format": "mp4",
-                    "audio": "playback",
-                },
-            )
-        )
-
     return status(session_id)
 
 
@@ -350,7 +470,7 @@ async def stop_scrcpy(session_id: str) -> dict[str, Any]:
     if task_state:
         task_state.running = False
         await _terminate_process(task_state.process)
-        if not task_state.task.done():
+        if task_state.task and not task_state.task.done():
             task_state.task.cancel()
             try:
                 await task_state.task
@@ -364,14 +484,28 @@ async def stop_scrcpy(session_id: str) -> dict[str, Any]:
 def status(session_id: str) -> dict[str, Any]:
     task_state = scrcpy_tasks.get(session_id)
     if not task_state:
-        return {"running": False, "serial": "", "last_error": "", "width": 0, "height": 0, "recording_path": ""}
+        return {
+            "running": False,
+            "serial": "",
+            "last_error": "",
+            "width": 0,
+            "height": 0,
+            "recording_path": "",
+            "reconnecting": False,
+            "reconnect_attempts": 0,
+            "last_exit_code": None,
+        }
+    process_running = bool(task_state.process and task_state.process.returncode is None)
     return {
-        "running": task_state.running and task_state.process.returncode is None,
+        "running": task_state.running and process_running,
         "serial": task_state.serial,
         "last_error": task_state.last_error,
         "width": task_state.width,
         "height": task_state.height,
         "recording_path": task_state.recording_path,
+        "reconnecting": task_state.reconnecting,
+        "reconnect_attempts": task_state.reconnect_attempts,
+        "last_exit_code": task_state.last_exit_code,
     }
 
 
