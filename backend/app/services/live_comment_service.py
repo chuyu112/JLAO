@@ -94,6 +94,7 @@ _COMPACT_LIGHT_BADGED_LINE_PATTERN = re.compile(
     rf"^(({_CUSTOM_LIGHT_BADGE_TEXT}))({_MASKED_NICKNAME_FRAGMENT})\s+(.{{2,}})$"
 )
 _MASKED_NICKNAME_PATTERN = re.compile(r"^([A-Za-z0-9_\u4e00-\u9fff.-]{1,14}\*{1,3})\s+(.{2,})$")
+_INTERACTION_EVENT_PATTERN = re.compile(r"^(.*?)(关注了主播|关注了|关注|下单了|下单|点赞了|点赞|赞了直播|赞了|赞)(.*)$")
 _SENSITIVE_QUERY_PATTERN = re.compile(r"\b(AccessKeyId|Signature|SignatureNonce)=([^&\s)]+)")
 _IGNORE_MARKERS = (
     "江苏健康广播",
@@ -183,6 +184,7 @@ async def recognize_comment_lines(image_path: Path) -> list[str]:
 async def _recognize_all_comment_variants(image_variants: list[bytes]) -> list[str]:
     """Recognize comment-region variants with local OCR only."""
     all_lines: list[str] = []
+    ocr_errors: list[str] = []
 
     if PADDLEOCR_AVAILABLE:
         for image_bytes in image_variants:
@@ -190,6 +192,7 @@ async def _recognize_all_comment_variants(image_variants: list[bytes]) -> list[s
                 lines = await asyncio.to_thread(_recognize_with_paddleocr, image_bytes)
                 all_lines.extend(lines)
             except Exception as exc:
+                ocr_errors.append(str(exc))
                 logger.debug("PaddleOCR failed: %s", str(exc))
         if all_lines:
             return all_lines
@@ -200,7 +203,10 @@ async def _recognize_all_comment_variants(image_variants: list[bytes]) -> list[s
                 lines = await asyncio.to_thread(_recognize_with_tesseract, image_bytes)
                 all_lines.extend(lines)
             except Exception as exc:
+                ocr_errors.append(str(exc))
                 logger.debug("Tesseract OCR failed: %s", str(exc))
+    elif ocr_errors:
+        raise RuntimeError(ocr_errors[-1])
     return all_lines
 
 
@@ -380,14 +386,12 @@ def _read_comment_region_variants(image_path: Path) -> list[bytes]:
 
 def _parse_comment_line(raw_line: str) -> tuple[str, str, str, list[str]] | None:
     line = _clean_line(raw_line)
-    if not line or len(line) < 3:
+    if not line:
         return None
 
-    if "关注了主播" in line:
-        nickname, customer_tags = _extract_nickname_tags(line.split("关注了主播", 1)[0])
-        if not nickname:
-            return None
-        return nickname, "关注了主播", "关注", customer_tags
+    interaction_event = _parse_interaction_event(line)
+    if interaction_event:
+        return interaction_event
 
     has_comment_marker = "：" in line or ":" in line
     is_badged_line = bool(_BADGED_LINE_PATTERN.match(line))
@@ -396,10 +400,9 @@ def _parse_comment_line(raw_line: str) -> tuple[str, str, str, list[str]] | None
     if compact_prefix_parse:
         return compact_prefix_parse
     if not has_comment_marker and not is_badged_line and not is_masked_line:
-        if _looks_like_content_only_comment(line):
-            return "", _clean_content(line), "弹幕", []
-        return None
-    if _is_noise_line(line):
+        content = _clean_content(line)
+        if _has_publishable_ocr_text(content):
+            return "", content, "弹幕", []
         return None
 
     match = _COMMENT_SPLIT_PATTERN.match(line)
@@ -423,9 +426,57 @@ def _parse_comment_line(raw_line: str) -> tuple[str, str, str, list[str]] | None
                 nickname, customer_tags = _extract_nickname_tags(match.group(1))
                 content = _clean_content(match.group(2))
 
-    if not nickname or not _is_valid_comment_content(content):
+    if not _has_publishable_ocr_text(content):
+        content = _clean_content(line)
+        nickname = ""
+        customer_tags = []
+    if not _has_publishable_ocr_text(content):
         return None
     return nickname, content, "弹幕", customer_tags
+
+
+def _parse_interaction_event(line: str) -> tuple[str, str, str, list[str]] | None:
+    match = _INTERACTION_EVENT_PATTERN.match(line)
+    if not match:
+        return None
+
+    raw_actor, raw_action, raw_detail = match.groups()
+    if "：" in raw_actor or ":" in raw_actor:
+        return None
+    action = _clean_line(raw_action)
+    detail = _clean_content(raw_detail)
+    event_type = _interaction_event_type(action)
+    if not event_type:
+        return None
+
+    nickname, customer_tags = _extract_nickname_tags(raw_actor)
+    content = _clean_content(f"{action}{detail}")
+    if not content:
+        content = action
+
+    if not nickname and not _is_anonymous_interaction_event(event_type, action, detail):
+        return None
+    if not _is_valid_interaction_event_content(event_type, content):
+        return None
+    return nickname, content, event_type, customer_tags
+
+
+def _interaction_event_type(action: str) -> str:
+    if action.startswith("关注"):
+        return "关注"
+    if action.startswith("下单"):
+        return "下单"
+    if action.startswith("点赞") or action.startswith("赞"):
+        return "点赞"
+    return ""
+
+
+def _is_anonymous_interaction_event(event_type: str, action: str, detail: str) -> bool:
+    if event_type == "下单":
+        return bool(detail) or action == "下单了"
+    if event_type == "关注":
+        return action == "关注了主播"
+    return False
 
 
 def _parse_compact_badged_masked_comment(line: str) -> tuple[str, str, str, list[str]] | None:
@@ -440,7 +491,7 @@ def _parse_compact_badged_masked_comment(line: str) -> tuple[str, str, str, list
 
     nickname, customer_tags = _extract_nickname_tags(f"{match.group(1)}{match.group(2)}")
     content = _clean_content(match.group(3))
-    if not nickname or not _is_valid_comment_content(content):
+    if not _has_publishable_ocr_text(content):
         return None
     return nickname, content, "弹幕", customer_tags
 
@@ -607,15 +658,32 @@ def _clean_content(value: str) -> str:
 
 
 def _is_valid_comment_content(content: str) -> bool:
-    if len(content) < 2:
+    if not _has_publishable_ocr_text(content):
         return False
     if len(content) > 120:
         return False
-    return len(_semantic_comment_text(content)) >= 3
+    return True
+
+
+def _has_publishable_ocr_text(content: str) -> bool:
+    return bool(_semantic_comment_text(content))
+
+
+def _is_valid_interaction_event_content(event_type: str, content: str) -> bool:
+    semantic = _semantic_comment_text(content)
+    if len(content) > 120:
+        return False
+    if event_type == "关注":
+        return "关注" in semantic
+    if event_type == "下单":
+        return "下单" in semantic
+    if event_type == "点赞":
+        return "点赞" in semantic or "赞" in semantic
+    return False
 
 
 def _is_noise_line(line: str) -> bool:
-    if "关注了主播" in line:
+    if _parse_interaction_event(line):
         return False
     if _BADGED_LINE_PATTERN.match(line):
         return False
@@ -656,7 +724,7 @@ def _candidate_comment_lines(lines: Iterable[str]) -> list[str]:
 
 
 def _line_starts_comment(line: str) -> bool:
-    if "关注了主播" in line:
+    if _parse_interaction_event(line):
         return True
     if _COMMENT_SPLIT_PATTERN.match(line):
         return True
@@ -680,11 +748,11 @@ def _looks_like_continuation(line: str, pending: str) -> bool:
 
 
 def _looks_like_content_only_comment(line: str) -> bool:
-    if _line_starts_comment(line) or _is_noise_line(line):
+    if _line_starts_comment(line):
         return False
-    if len(line) < 5 or len(line) > 80:
+    if len(line) > 80:
         return False
-    return bool(re.search(r"[\u4e00-\u9fff]", line))
+    return _has_publishable_ocr_text(line)
 
 
 def _split_ocr_text(text: str) -> list[str]:
@@ -739,11 +807,9 @@ def _mark_comment_seen(
 
 
 def _is_publishable_live_comment(event: VirtualCustomerEvent) -> bool:
-    if event.event_type == "关注":
-        return bool(event.customer_nickname)
-    if not event.customer_nickname:
-        return _is_publishable_content_only_live_comment(event)
-    return _nickname_score(event.customer_nickname) >= 3 and _is_valid_comment_content(event.content)
+    if event.event_type in {"关注", "下单", "点赞"}:
+        return _is_valid_interaction_event_content(event.event_type, event.content)
+    return _has_publishable_ocr_text(event.content)
 
 
 def _is_publishable_content_only_live_comment(event: VirtualCustomerEvent) -> bool:
@@ -754,11 +820,7 @@ def _is_publishable_content_only_live_comment(event: VirtualCustomerEvent) -> bo
 
 def _looks_like_publishable_content_only_comment(content: str) -> bool:
     cleaned = _clean_content(content)
-    if not _is_valid_comment_content(cleaned):
-        return False
-    if re.search(r"[?？]", cleaned):
-        return True
-    return False
+    return _has_publishable_ocr_text(cleaned)
 
 
 def _with_unknown_commenter(event: VirtualCustomerEvent) -> VirtualCustomerEvent:
@@ -887,6 +949,8 @@ def _semantic_keys_are_similar(left: str, right: str) -> bool:
 def _semantic_texts_are_similar(left_text: str, right_text: str) -> bool:
     if not left_text or not right_text:
         return False
+    if min(len(left_text), len(right_text)) < 5:
+        return left_text == right_text
     if left_text in right_text or right_text in left_text:
         return True
     return SequenceMatcher(a=left_text, b=right_text).ratio() >= 0.88

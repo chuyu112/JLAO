@@ -47,7 +47,6 @@
               <small>{{ formatTime(item.created_at) }}</small>
             </div>
             <p>{{ item.content }}</p>
-            <div class="transcript-meta">{{ item.event_type }}</div>
           </article>
         </div>
       </div>
@@ -83,9 +82,10 @@ function formatTime(value: string) {
 
 .transcript-split-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
   overflow: hidden;
+  padding-right: 0;
 }
 
 .transcript-column {
@@ -95,6 +95,10 @@ function formatTime(value: string) {
   flex-direction: column;
   overflow: auto;
   padding-right: 2px;
+}
+
+.comment-column {
+  padding-right: 0;
 }
 
 .transcript-column-title {
@@ -113,11 +117,11 @@ function formatTime(value: string) {
 .comment-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .comment-item {
-  padding: 8px 10px;
+  padding: 3px 7px;
   border-radius: 6px;
   background: #111a22;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -138,7 +142,7 @@ function formatTime(value: string) {
 .comment-line span {
   min-width: 0;
   color: #ecf6f2;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
@@ -159,14 +163,14 @@ function formatTime(value: string) {
 .comment-line small {
   flex: 0 0 auto;
   color: #89a1aa;
-  font-size: 11px;
+  font-size: 9px;
 }
 
 .comment-item p {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: #d4e2dc;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 

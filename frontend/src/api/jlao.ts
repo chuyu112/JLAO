@@ -20,13 +20,19 @@ import type {
   JadeTrainingStatus,
   JadeVlmProbeResult,
   JadeYoloLiveDetectionResult,
+  CaptureCardDevicesInfo,
+  CaptureCardPreviewInfo,
+  CaptureStatusInfo,
   LiveSession,
+  NativeAudioInfo,
   NativeSttInfo,
   PhoneCaptureInfo,
   Product,
   ProductCreatePayload,
   ReplayReport,
+  RecorderInfo,
   ScrcpyDeviceInfo,
+  SttRuntimeSettings,
   Suggestion,
   TranscriptSegment,
   VirtualCustomer,
@@ -361,6 +367,16 @@ export async function uploadFrame(sessionId: string, blob: Blob) {
   return data
 }
 
+export async function uploadCaptureCardFrame(
+  sessionId: string,
+  payload: { rotation?: number; mirror?: boolean } = {},
+) {
+  const { data } = await api.post<FrameSnapshot>(`/api/sessions/${sessionId}/frames/capture-card`, payload, {
+    timeout: 120000,
+  })
+  return data
+}
+
 export async function detectJadeYoloLiveFrame(sessionId: string, blob: Blob) {
   const form = new FormData()
   form.append('file', blob, `yolo-live-${Date.now()}.jpg`)
@@ -368,6 +384,18 @@ export async function detectJadeYoloLiveFrame(sessionId: string, blob: Blob) {
     `/api/sessions/${sessionId}/jade-yolo/detect-frame`,
     form,
     { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 8000 }
+  )
+  return data
+}
+
+export async function detectCaptureCardYoloLiveFrame(
+  sessionId: string,
+  payload: { rotation?: number; mirror?: boolean } = {},
+) {
+  const { data } = await api.post<JadeYoloLiveDetectionResult>(
+    `/api/sessions/${sessionId}/jade-yolo/detect-capture-card-frame`,
+    payload,
+    { timeout: 8000 },
   )
   return data
 }
@@ -401,6 +429,79 @@ export async function getScrcpyStatus(sessionId: string) {
   return data
 }
 
+export async function getCaptureStatus(sessionId: string) {
+  const { data } = await api.get<CaptureStatusInfo>(`/api/sessions/${sessionId}/capture/status`)
+  return data
+}
+
+export async function getCaptureCardDevices() {
+  const { data } = await api.get<CaptureCardDevicesInfo>('/api/capture-card/devices')
+  return data
+}
+
+export async function startCaptureCardPreview(
+  sessionId: string,
+  payload: { device_id?: string; video_index?: number | null; width?: number; height?: number; fps?: number } = {},
+) {
+  const { data } = await api.post<CaptureCardPreviewInfo>(`/api/sessions/${sessionId}/capture-card/start`, payload)
+  return data
+}
+
+export async function stopCaptureCardPreview(sessionId: string) {
+  const { data } = await api.post<CaptureCardPreviewInfo>(`/api/sessions/${sessionId}/capture-card/stop`)
+  return data
+}
+
+export async function getCaptureCardPreviewStatus(sessionId: string) {
+  const { data } = await api.get<CaptureCardPreviewInfo>(`/api/sessions/${sessionId}/capture-card/status`)
+  return data
+}
+
+export function captureCardStreamUrl(sessionId: string) {
+  const token = localStorage.getItem('jlao_token') || ''
+  const base = `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/capture-card/stream`
+  const params = new URLSearchParams()
+  if (token) params.set('token', token)
+  params.set('t', String(Date.now()))
+  return `${base}?${params.toString()}`
+}
+
+export async function updateBrowserVideoStatus(
+  sessionId: string,
+  payload: { running: boolean; last_error?: string; metadata?: Record<string, unknown> },
+) {
+  const { data } = await api.post<CaptureStatusInfo>(`/api/sessions/${sessionId}/capture/browser-video`, payload)
+  return data
+}
+
+export async function updateOcrCaptureStatus(
+  sessionId: string,
+  payload: { running: boolean; last_error?: string; metadata?: Record<string, unknown> },
+) {
+  const { data } = await api.post<CaptureStatusInfo>(`/api/sessions/${sessionId}/capture/ocr`, payload)
+  return data
+}
+
+export async function softResetCapture(sessionId: string) {
+  const { data } = await api.post(`/api/sessions/${sessionId}/capture/reset/soft`)
+  return data
+}
+
+export async function hardResetCapture(sessionId: string) {
+  const { data } = await api.post(`/api/sessions/${sessionId}/capture/reset/hard`)
+  return data
+}
+
+export async function getSttRuntimeSettings() {
+  const { data } = await api.get<SttRuntimeSettings>('/api/runtime/stt')
+  return data
+}
+
+export async function updateSttRuntimeSettings(payload: { local_stt_device?: string; stt_provider?: string }) {
+  const { data } = await api.post<SttRuntimeSettings>('/api/runtime/stt', payload)
+  return data
+}
+
 export async function startPhoneCapture(sessionId: string, payload: { serial?: string; interval_seconds?: number }) {
   const { data } = await api.post<PhoneCaptureInfo>(`/api/sessions/${sessionId}/phone-capture/start`, payload)
   return data
@@ -416,6 +517,24 @@ export async function getPhoneCaptureStatus(sessionId: string) {
   return data
 }
 
+export async function startNativeAudio(
+  sessionId: string,
+  payload: { serial?: string; source?: string; device_id?: string; device_name?: string },
+) {
+  const { data } = await api.post<NativeAudioInfo>(`/api/sessions/${sessionId}/native-audio/start`, payload)
+  return data
+}
+
+export async function stopNativeAudio(sessionId: string) {
+  const { data } = await api.post<NativeAudioInfo>(`/api/sessions/${sessionId}/native-audio/stop`)
+  return data
+}
+
+export async function getNativeAudioStatus(sessionId: string) {
+  const { data } = await api.get<NativeAudioInfo>(`/api/sessions/${sessionId}/native-audio/status`)
+  return data
+}
+
 export async function startNativeStt(sessionId: string, payload: { serial?: string; chunk_seconds?: number }) {
   const { data } = await api.post<NativeSttInfo>(`/api/sessions/${sessionId}/native-stt/start`, payload)
   return data
@@ -428,6 +547,31 @@ export async function stopNativeStt(sessionId: string) {
 
 export async function getNativeSttStatus(sessionId: string) {
   const { data } = await api.get<NativeSttInfo>(`/api/sessions/${sessionId}/native-stt/status`)
+  return data
+}
+
+export async function startRecorder(sessionId: string) {
+  const { data } = await api.post<RecorderInfo>(`/api/sessions/${sessionId}/recorder/start`)
+  return data
+}
+
+export async function stopRecorder(sessionId: string, blob: Blob) {
+  const form = new FormData()
+  form.append('file', blob, `recording-${Date.now()}.webm`)
+  const { data } = await api.post<RecorderInfo>(`/api/sessions/${sessionId}/recorder/stop`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+  })
+  return data
+}
+
+export async function abortRecorder(sessionId: string) {
+  const { data } = await api.post<RecorderInfo>(`/api/sessions/${sessionId}/recorder/abort`)
+  return data
+}
+
+export async function getRecorderStatus(sessionId: string) {
+  const { data } = await api.get<RecorderInfo>(`/api/sessions/${sessionId}/recorder/status`)
   return data
 }
 

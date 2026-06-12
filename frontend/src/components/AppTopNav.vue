@@ -24,11 +24,6 @@
         <router-link class="nav-link" to="/annotate">人工标注</router-link>
         <router-link class="nav-link" to="/replay">观察报告</router-link>
       </div>
-      <div class="user-chip" v-if="auth.user">
-        <span class="user-dot"></span>
-        <span>{{ auth.user.display_name }}</span>
-        <n-tag size="small" type="success">{{ auth.user.role }}</n-tag>
-      </div>
       <settings-panel />
       <n-button size="small" quaternary @click="logout">退出</n-button>
     </div>
@@ -37,7 +32,7 @@
 
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NTag } from 'naive-ui'
+import { NButton } from 'naive-ui'
 import { useAuthStore } from '../stores/auth'
 import { useJlaoStore } from '../stores/jlao'
 import SettingsPanel from './SettingsPanel.vue'

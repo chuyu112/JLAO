@@ -13,33 +13,55 @@ import {
   fetchTranscripts,
   fetchVirtualCustomers,
   fetchWikiChunks,
-  getPhoneCaptureStatus,
+  abortRecorder,
+  captureCardStreamUrl,
+  getCaptureStatus,
+  getCaptureCardPreviewStatus,
+  getNativeAudioStatus,
   getNativeSttStatus,
+  getRecorderStatus,
+  getSttRuntimeSettings,
   getScrcpyStatus,
+  hardResetCapture,
   setCurrentProduct,
   setLiveUrl,
   setManualProductName,
-  startPhoneCapture,
+  softResetCapture,
+  startCaptureCardPreview,
+  startNativeAudio,
   startNativeStt,
+  startRecorder,
   startScrcpy,
+  stopNativeAudio,
   stopPhoneCapture,
   stopNativeStt,
+  stopRecorder,
   startSession,
   stopScrcpy,
+  stopCaptureCardPreview,
   stopSession,
+  updateSttRuntimeSettings,
+  updateBrowserVideoStatus,
+  updateOcrCaptureStatus,
+  uploadCaptureCardFrame as uploadCaptureCardFrameApi,
   updateSuggestionStatus,
   uploadFrame,
 } from '../api/jlao'
 import type {
   AgentProfile,
   AgentUtterance,
+  CaptureStatusInfo,
+  CaptureCardPreviewInfo,
   FrameSnapshot,
   LiveSession,
+  NativeAudioInfo,
   NativeSttInfo,
   PhoneCaptureInfo,
   Product,
   ReplayReport,
+  RecorderInfo,
   ScrcpyDeviceInfo,
+  SttRuntimeSettings,
   Suggestion,
   TranscriptSegment,
   VirtualCustomer,
@@ -50,7 +72,6 @@ import type {
 import {
   clearCaptureModeLock,
   isModeStartBlocked,
-  readCaptureModeLock,
   writeCaptureModeLock,
   type CaptureMode,
 } from '../utils/captureMode'
@@ -81,11 +102,61 @@ interface State {
   scrcpyInfo: ScrcpyDeviceInfo | null
   scrcpyLoading: boolean
   phoneCaptureInfo: PhoneCaptureInfo | null
-  phoneCaptureLoading: boolean
+  inputMode: 'capture_card' | 'scrcpy'
+  captureCardVideoDeviceId: string
+  captureCardAudioDeviceId: string
+  captureCardVideoRotation: 0 | 180
+  captureCardVideoMirror: boolean
+  captureCardInfo: CaptureCardPreviewInfo | null
+  captureCardLoading: boolean
+  nativeAudioInfo: NativeAudioInfo | null
+  nativeAudioLoading: boolean
   nativeSttInfo: NativeSttInfo | null
   nativeSttLoading: boolean
+  recorderInfo: RecorderInfo | null
+  recorderLoading: boolean
+  captureStatusInfo: CaptureStatusInfo | null
   activeCaptureMode: CaptureMode | null
   captureStartupMode: CaptureMode | null
+  ocrIntervalMs: number
+  videoStaleTimeoutMs: number
+  sttRuntimeSettings: SttRuntimeSettings | null
+  sttRuntimeSettingsLoading: boolean
+  captureResetToken: number
+}
+
+const OCR_INTERVAL_STORAGE_KEY = 'jlao_ocr_interval_ms'
+const OCR_INTERVAL_OPTIONS = [1000, 2000, 5000]
+const VIDEO_STALE_TIMEOUT_STORAGE_KEY = 'jlao_video_stale_timeout_ms'
+const VIDEO_STALE_TIMEOUT_OPTIONS = [3000, 5000, 10000]
+const INPUT_MODE_STORAGE_KEY = 'jlao_input_mode'
+const CAPTURE_CARD_VIDEO_DEVICE_STORAGE_KEY = 'jlao_capture_card_video_device_id'
+const CAPTURE_CARD_AUDIO_DEVICE_STORAGE_KEY = 'jlao_capture_card_audio_device_id'
+const CAPTURE_CARD_VIDEO_ROTATION_STORAGE_KEY = 'jlao_capture_card_video_rotation'
+const CAPTURE_CARD_VIDEO_MIRROR_STORAGE_KEY = 'jlao_capture_card_video_mirror'
+
+function readInputMode(): 'capture_card' | 'scrcpy' {
+  const raw = localStorage.getItem(INPUT_MODE_STORAGE_KEY)
+  return raw === 'scrcpy' ? 'scrcpy' : 'capture_card'
+}
+
+function readCaptureCardVideoRotation(): 0 | 180 {
+  return localStorage.getItem(CAPTURE_CARD_VIDEO_ROTATION_STORAGE_KEY) === '180' ? 180 : 0
+}
+
+function readCaptureCardVideoMirror(): boolean {
+  const raw = localStorage.getItem(CAPTURE_CARD_VIDEO_MIRROR_STORAGE_KEY)
+  return raw === null ? true : raw === 'true'
+}
+
+function readOcrIntervalMs(): number {
+  const raw = Number(localStorage.getItem(OCR_INTERVAL_STORAGE_KEY))
+  return OCR_INTERVAL_OPTIONS.includes(raw) ? raw : 1000
+}
+
+function readVideoStaleTimeoutMs(): number {
+  const raw = Number(localStorage.getItem(VIDEO_STALE_TIMEOUT_STORAGE_KEY))
+  return VIDEO_STALE_TIMEOUT_OPTIONS.includes(raw) ? raw : 3000
 }
 
 function cleanLiveRoomNameForDisplay(value: string): string {
@@ -125,11 +196,27 @@ export const useJlaoStore = defineStore('jlao', {
     scrcpyInfo: null,
     scrcpyLoading: false,
     phoneCaptureInfo: null,
-    phoneCaptureLoading: false,
+    inputMode: readInputMode(),
+    captureCardVideoDeviceId: localStorage.getItem(CAPTURE_CARD_VIDEO_DEVICE_STORAGE_KEY) || '',
+    captureCardAudioDeviceId: localStorage.getItem(CAPTURE_CARD_AUDIO_DEVICE_STORAGE_KEY) || '',
+    captureCardVideoRotation: readCaptureCardVideoRotation(),
+    captureCardVideoMirror: readCaptureCardVideoMirror(),
+    captureCardInfo: null,
+    captureCardLoading: false,
+    nativeAudioInfo: null,
+    nativeAudioLoading: false,
     nativeSttInfo: null,
     nativeSttLoading: false,
-    activeCaptureMode: readCaptureModeLock(),
+    recorderInfo: null,
+    recorderLoading: false,
+    captureStatusInfo: null,
+    activeCaptureMode: null,
     captureStartupMode: null,
+    ocrIntervalMs: readOcrIntervalMs(),
+    videoStaleTimeoutMs: readVideoStaleTimeoutMs(),
+    sttRuntimeSettings: null,
+    sttRuntimeSettingsLoading: false,
+    captureResetToken: 0,
   }),
 
   getters: {
@@ -155,8 +242,6 @@ export const useJlaoStore = defineStore('jlao', {
 
   actions: {
     beginCaptureStartup(mode: CaptureMode): boolean {
-      const persistedMode = readCaptureModeLock()
-      if (persistedMode) this.activeCaptureMode = persistedMode
       if (isModeStartBlocked(mode, this.activeCaptureMode, this.captureStartupMode)) return false
       this.activeCaptureMode = mode
       this.captureStartupMode = mode
@@ -172,6 +257,75 @@ export const useJlaoStore = defineStore('jlao', {
       if (this.captureStartupMode === mode) this.captureStartupMode = null
       if (this.activeCaptureMode === mode) this.activeCaptureMode = null
       clearCaptureModeLock(mode)
+    },
+
+    setOcrIntervalMs(value: number) {
+      const nextValue = OCR_INTERVAL_OPTIONS.includes(value) ? value : 1000
+      this.ocrIntervalMs = nextValue
+      localStorage.setItem(OCR_INTERVAL_STORAGE_KEY, String(nextValue))
+    },
+
+    setVideoStaleTimeoutMs(value: number) {
+      const nextValue = VIDEO_STALE_TIMEOUT_OPTIONS.includes(value) ? value : 3000
+      this.videoStaleTimeoutMs = nextValue
+      localStorage.setItem(VIDEO_STALE_TIMEOUT_STORAGE_KEY, String(nextValue))
+    },
+
+    setInputMode(value: 'capture_card' | 'scrcpy' | string) {
+      const nextValue = value === 'scrcpy' ? 'scrcpy' : 'capture_card'
+      this.inputMode = nextValue
+      localStorage.setItem(INPUT_MODE_STORAGE_KEY, nextValue)
+    },
+
+    setCaptureCardVideoDeviceId(value: string) {
+      this.captureCardVideoDeviceId = value || ''
+      if (value) localStorage.setItem(CAPTURE_CARD_VIDEO_DEVICE_STORAGE_KEY, value)
+      else localStorage.removeItem(CAPTURE_CARD_VIDEO_DEVICE_STORAGE_KEY)
+    },
+
+    setCaptureCardAudioDeviceId(value: string) {
+      this.captureCardAudioDeviceId = value || ''
+      if (value) localStorage.setItem(CAPTURE_CARD_AUDIO_DEVICE_STORAGE_KEY, value)
+      else localStorage.removeItem(CAPTURE_CARD_AUDIO_DEVICE_STORAGE_KEY)
+    },
+
+    setCaptureCardVideoRotation(value: number | string) {
+      const nextValue = Number(value) === 180 ? 180 : 0
+      this.captureCardVideoRotation = nextValue
+      localStorage.setItem(CAPTURE_CARD_VIDEO_ROTATION_STORAGE_KEY, String(nextValue))
+    },
+
+    setCaptureCardVideoMirror(value: boolean | string) {
+      const nextValue = value === true || value === 'true'
+      this.captureCardVideoMirror = nextValue
+      localStorage.setItem(CAPTURE_CARD_VIDEO_MIRROR_STORAGE_KEY, String(nextValue))
+    },
+
+    async refreshSttRuntimeSettings() {
+      this.sttRuntimeSettingsLoading = true
+      try {
+        this.sttRuntimeSettings = await getSttRuntimeSettings()
+      } finally {
+        this.sttRuntimeSettingsLoading = false
+      }
+    },
+
+    async setSttRuntimeDevice(device: string) {
+      this.sttRuntimeSettingsLoading = true
+      try {
+        this.sttRuntimeSettings = await updateSttRuntimeSettings({ local_stt_device: device })
+      } finally {
+        this.sttRuntimeSettingsLoading = false
+      }
+    },
+
+    async setSttRuntimeProvider(provider: string) {
+      this.sttRuntimeSettingsLoading = true
+      try {
+        this.sttRuntimeSettings = await updateSttRuntimeSettings({ stt_provider: provider })
+      } finally {
+        this.sttRuntimeSettingsLoading = false
+      }
     },
 
     async initDemo(platform: string = '抖音') {
@@ -206,6 +360,7 @@ export const useJlaoStore = defineStore('jlao', {
       const socket = new WebSocket(this._wsUrl(`/ws/sessions/${this.currentSession.id}`))
       socket.onopen = () => {
         this.connected = true
+        void this.refreshCaptureStatus()
       }
       socket.onclose = () => {
         this.connected = false
@@ -277,6 +432,15 @@ export const useJlaoStore = defineStore('jlao', {
         this.sttConnected = Boolean(this.nativeSttInfo.running)
         if (this.nativeSttInfo.last_error) this.sttError = this.nativeSttInfo.last_error
       }
+      if (message.event === 'native_audio_status') {
+        this.nativeAudioInfo = message.data as NativeAudioInfo
+      }
+      if (message.event === 'recorder_status') {
+        this.recorderInfo = message.data as RecorderInfo
+      }
+      if (message.event === 'capture_status') {
+        this.captureStatusInfo = message.data as CaptureStatusInfo
+      }
     },
 
     async start() {
@@ -289,6 +453,7 @@ export const useJlaoStore = defineStore('jlao', {
       if (!this.currentSession) return
       this.disconnectStt()
       await this.stopNativeSttSession()
+      await this.stopCaptureCardSession()
       await this.stopScrcpySession()
       await this.stopPhoneCaptureSession()
       this.currentSession = await stopSession(this.currentSession.id)
@@ -357,6 +522,21 @@ export const useJlaoStore = defineStore('jlao', {
       this.frameAnalyzing = true
       try {
         const frame = await uploadFrame(this.currentSession.id, blob)
+        this.frames = [frame, ...this.frames.filter((item) => item.id !== frame.id)].slice(0, 30)
+        return frame
+      } finally {
+        this.frameAnalyzing = false
+      }
+    },
+
+    async uploadCaptureCardFrame() {
+      if (!this.currentSession || this.frameAnalyzing) return null
+      this.frameAnalyzing = true
+      try {
+        const frame = await uploadCaptureCardFrameApi(this.currentSession.id, {
+          rotation: this.captureCardVideoRotation,
+          mirror: this.captureCardVideoMirror,
+        })
         this.frames = [frame, ...this.frames.filter((item) => item.id !== frame.id)].slice(0, 30)
         return frame
       } finally {
@@ -459,26 +639,123 @@ export const useJlaoStore = defineStore('jlao', {
       this.scrcpyInfo = await getScrcpyStatus(this.currentSession.id)
     },
 
-    async startPhoneCaptureSession(serial = '') {
+    async refreshCaptureStatus() {
       if (!this.currentSession) return
-      this.phoneCaptureLoading = true
+      this.captureStatusInfo = await getCaptureStatus(this.currentSession.id)
+      const resources = this.captureStatusInfo.resources
+      this.nativeAudioInfo = {
+        running: Boolean(resources.native_audio_stream.running),
+        state: String(resources.native_audio_stream.state || 'stopped'),
+        serial: String(resources.native_audio_stream.serial || ''),
+        source: String(resources.native_audio_stream.source || 'playback'),
+        device_id: String(resources.native_audio_stream.device_id || ''),
+        device_name: String(resources.native_audio_stream.device_name || ''),
+        last_error: String(resources.native_audio_stream.last_error || ''),
+        audio_chunks: Number(resources.native_audio_stream.audio_chunks || 0),
+        audio_bytes: Number(resources.native_audio_stream.audio_bytes || 0),
+        consumers: Array.isArray(resources.native_audio_stream.consumers) ? resources.native_audio_stream.consumers as string[] : [],
+      }
+      this.recorderInfo = {
+        running: Boolean(resources.recorder.running),
+        state: String(resources.recorder.state || 'stopped'),
+        last_error: String(resources.recorder.last_error || ''),
+        audio_chunks: Number(resources.recorder.audio_chunks || 0),
+        audio_bytes: Number(resources.recorder.audio_bytes || 0),
+        output_path: String(resources.recorder.output_path || ''),
+        audio_path: String(resources.recorder.audio_path || ''),
+        video_path: String(resources.recorder.video_path || ''),
+      }
+      if (resources.capture_card_input) {
+        this.captureCardInfo = {
+          running: Boolean(resources.capture_card_input.running),
+          state: String(resources.capture_card_input.state || 'stopped'),
+          session_id: this.currentSession.id,
+          device_id: String(resources.capture_card_input.device_id || ''),
+          video_index: Number(resources.capture_card_input.video_index || 0),
+          width: Number(resources.capture_card_input.width || 0),
+          height: Number(resources.capture_card_input.height || 0),
+          fps: Number(resources.capture_card_input.fps || 0),
+          frame_width: Number(resources.capture_card_input.frame_width || 0),
+          frame_height: Number(resources.capture_card_input.frame_height || 0),
+          frame_mean: Number(resources.capture_card_input.frame_mean || 0),
+          frame_std: Number(resources.capture_card_input.frame_std || 0),
+          signal_present: Boolean(resources.capture_card_input.signal_present),
+          frame_count: Number(resources.capture_card_input.frame_count || 0),
+          last_error: String(resources.capture_card_input.last_error || ''),
+          started_at: 0,
+          updated_at: 0,
+        }
+      }
+    },
+
+    getCaptureCardStreamUrl() {
+      if (!this.currentSession) return ''
+      return captureCardStreamUrl(this.currentSession.id)
+    },
+
+    async startCaptureCardSession() {
+      if (!this.currentSession) return
+      this.captureCardLoading = true
       try {
-        this.phoneCaptureInfo = await startPhoneCapture(this.currentSession.id, {
-          serial,
-          interval_seconds: 0.2,
+        this.captureCardInfo = await startCaptureCardPreview(this.currentSession.id, {
+          device_id: this.captureCardVideoDeviceId,
+          width: 1280,
+          height: 720,
+          fps: 30,
         })
       } catch (e: any) {
         const detail = e?.response?.data?.detail
-        this.phoneCaptureInfo = {
+        this.captureCardInfo = {
           running: false,
-          serial: '',
-          interval_seconds: 0.2,
-          last_error: detail || e.message || '手机截屏启动失败',
-          last_frame_id: null,
+          state: 'error',
+          session_id: this.currentSession.id,
+          device_id: this.captureCardVideoDeviceId,
+          video_index: 0,
+          width: 0,
+          height: 0,
+          fps: 0,
+          frame_width: 0,
+          frame_height: 0,
+          frame_mean: 0,
+          frame_std: 0,
+          signal_present: false,
+          frame_count: 0,
+          last_error: detail || e.message || '采集卡输入启动失败',
+          started_at: 0,
+          updated_at: 0,
         }
+        throw e
       } finally {
-        this.phoneCaptureLoading = false
+        this.captureCardLoading = false
       }
+    },
+
+    async stopCaptureCardSession() {
+      if (!this.currentSession) return
+      this.captureCardInfo = await stopCaptureCardPreview(this.currentSession.id)
+    },
+
+    async refreshCaptureCardStatus() {
+      if (!this.currentSession) return
+      this.captureCardInfo = await getCaptureCardPreviewStatus(this.currentSession.id)
+    },
+
+    async markBrowserVideoStream(running: boolean, metadata: Record<string, unknown> = {}, lastError = '') {
+      if (!this.currentSession) return
+      this.captureStatusInfo = await updateBrowserVideoStatus(this.currentSession.id, {
+        running,
+        last_error: lastError,
+        metadata,
+      })
+    },
+
+    async markOcrCapture(running: boolean, metadata: Record<string, unknown> = {}, lastError = '') {
+      if (!this.currentSession) return
+      this.captureStatusInfo = await updateOcrCaptureStatus(this.currentSession.id, {
+        running,
+        last_error: lastError,
+        metadata,
+      })
     },
 
     async stopPhoneCaptureSession() {
@@ -486,13 +763,55 @@ export const useJlaoStore = defineStore('jlao', {
       this.phoneCaptureInfo = await stopPhoneCapture(this.currentSession.id)
     },
 
-    async refreshPhoneCaptureStatus() {
+    async startNativeAudioSession(
+      serial = '',
+      options: { source?: string; device_id?: string; device_name?: string } = {},
+    ) {
       if (!this.currentSession) return
-      this.phoneCaptureInfo = await getPhoneCaptureStatus(this.currentSession.id)
+      this.nativeAudioLoading = true
+      try {
+        this.nativeAudioInfo = await startNativeAudio(this.currentSession.id, {
+          serial,
+          source: options.source,
+          device_id: options.device_id,
+          device_name: options.device_name,
+        })
+      } catch (e: any) {
+        const detail = e?.response?.data?.detail
+        this.nativeAudioInfo = {
+          running: false,
+          state: 'error',
+          serial: '',
+          source: options.source || 'playback',
+          device_id: options.device_id || '',
+          device_name: options.device_name || '',
+          last_error: detail || e.message || '手机音频接入启动失败',
+          audio_chunks: 0,
+          audio_bytes: 0,
+          consumers: [],
+        }
+        throw e
+      } finally {
+        this.nativeAudioLoading = false
+      }
+    },
+
+    async stopNativeAudioSession() {
+      if (!this.currentSession) return
+      this.nativeAudioInfo = await stopNativeAudio(this.currentSession.id)
+    },
+
+    async refreshNativeAudioStatus() {
+      if (!this.currentSession) return
+      this.nativeAudioInfo = await getNativeAudioStatus(this.currentSession.id)
     },
 
     async startNativeSttSession(serial = '') {
       if (!this.currentSession) return
+      if (!this.nativeAudioInfo?.running) {
+        this.sttError = '请先打开音频接入'
+        throw new Error(this.sttError)
+      }
       this.nativeSttLoading = true
       try {
         this.nativeSttInfo = await startNativeStt(this.currentSession.id, {
@@ -513,6 +832,7 @@ export const useJlaoStore = defineStore('jlao', {
         }
         this.sttConnected = false
         this.sttError = this.nativeSttInfo.last_error
+        throw e
       } finally {
         this.nativeSttLoading = false
       }
@@ -528,6 +848,69 @@ export const useJlaoStore = defineStore('jlao', {
       if (!this.currentSession) return
       this.nativeSttInfo = await getNativeSttStatus(this.currentSession.id)
       this.sttConnected = Boolean(this.nativeSttInfo.running)
+    },
+
+    async startRecorderSession() {
+      if (!this.currentSession) return
+      this.recorderLoading = true
+      try {
+        this.recorderInfo = await startRecorder(this.currentSession.id)
+      } finally {
+        this.recorderLoading = false
+      }
+    },
+
+    async finishRecorderSession(blob: Blob) {
+      if (!this.currentSession) return
+      this.recorderLoading = true
+      try {
+        this.recorderInfo = await stopRecorder(this.currentSession.id, blob)
+      } finally {
+        this.recorderLoading = false
+      }
+    },
+
+    async abortRecorderSession() {
+      if (!this.currentSession) return
+      this.recorderInfo = await abortRecorder(this.currentSession.id)
+    },
+
+    async softResetCaptureState() {
+      if (!this.currentSession) return
+      const result = await softResetCapture(this.currentSession.id)
+      this.disconnectStt()
+      this.scrcpyInfo = null
+      this.phoneCaptureInfo = null
+      this.captureCardInfo = null
+      this.nativeAudioInfo = null
+      this.nativeSttInfo = null
+      this.recorderInfo = null
+      this.captureStatusInfo = null
+      this.activeCaptureMode = null
+      this.captureStartupMode = null
+      this.captureResetToken += 1
+      clearCaptureModeLock()
+      await this.refreshCaptureStatus()
+      return result
+    },
+
+    async hardResetCaptureState() {
+      if (!this.currentSession) return
+      const result = await hardResetCapture(this.currentSession.id)
+      this.disconnectStt()
+      this.scrcpyInfo = null
+      this.phoneCaptureInfo = null
+      this.captureCardInfo = null
+      this.nativeAudioInfo = null
+      this.nativeSttInfo = null
+      this.recorderInfo = null
+      this.captureStatusInfo = null
+      this.activeCaptureMode = null
+      this.captureStartupMode = null
+      this.captureResetToken += 1
+      clearCaptureModeLock()
+      await this.refreshCaptureStatus()
+      return result
     },
   },
 })

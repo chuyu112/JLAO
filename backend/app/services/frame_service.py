@@ -58,16 +58,21 @@ def analyze_image_basic(image_path: Path) -> dict[str, float | str]:
 
 
 async def create_frame_snapshot(session_id: str, image_path: Path, image_url: str) -> FrameSnapshot:
-    analysis = analyze_image_basic(image_path)
+    analysis = await asyncio.to_thread(analyze_image_basic, image_path)
     recent_context_text = "\n".join(segment.text for segment in app_state.transcripts.get(session_id, [])[-5:])
     ocr_signal = await recognize_jade_frame_ocr_text(session_id, image_path)
     ocr_text = str(ocr_signal.get("text") or "")
     image_context_text = recent_context_text
-    image_jade_analysis = analyze_jade_image(image_path, context_text=image_context_text)
-    jade_analysis = analyze_live_jade_context(session_id, image_analysis=image_jade_analysis, ocr_text=ocr_text)
+    image_jade_analysis = await asyncio.to_thread(analyze_jade_image, image_path, context_text=image_context_text)
+    jade_analysis = await asyncio.to_thread(
+        analyze_live_jade_context,
+        session_id,
+        image_analysis=image_jade_analysis,
+        ocr_text=ocr_text,
+    )
 
-    image_scores = match_products_by_image(image_path)
-    detected_color = jade_analysis.color or extract_color_from_image(image_path)
+    image_scores = await asyncio.to_thread(match_products_by_image, image_path)
+    detected_color = jade_analysis.color or await asyncio.to_thread(extract_color_from_image, image_path)
     recognized, confidence, source = await apply_recognition(
         session_id,
         image_scores=image_scores,
@@ -75,7 +80,7 @@ async def create_frame_snapshot(session_id: str, image_path: Path, image_url: st
         detected_extra=jade_analysis.style or jade_analysis.theme,
     )
     await upsert_live_jade_product(session_id, jade_analysis)
-    weak_sample = record_live_jade_weak_sample(session_id=session_id, image_url=image_url, analysis=jade_analysis)
+    weak_sample = await asyncio.to_thread(record_live_jade_weak_sample, session_id=session_id, image_url=image_url, analysis=jade_analysis)
 
     now = datetime.now(timezone.utc)
     snapshot = FrameSnapshot(

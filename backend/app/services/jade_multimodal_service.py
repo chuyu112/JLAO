@@ -545,6 +545,7 @@ def _visual_color_from_signals(
     ratios = (opencv_signal or {}).get("color_ratios") or {}
     if not cv_features and not ratios:
         return ""
+    has_cv_features = bool(cv_features)
     hue = _float_signal(cv_features, "hue_mean")
     saturation = _float_signal(cv_features, "saturation_mean")
     value = _float_signal(cv_features, "value_mean")
@@ -587,11 +588,11 @@ def _visual_color_from_signals(
         return "蓝水" if dark >= 0.25 and white < 0.20 else "晴水"
     if cyan_blue >= 0.12 and (green >= 0.20 or white >= 0.20):
         return "晴水"
-    if saturation <= 0.12 and green_ratio < 0.18:
+    if has_cv_features and saturation <= 0.12 and green_ratio < 0.18:
         if style == "手镯" and (cyan_blue >= 0.04 or value <= 0.34):
             return "无色"
         return "白冰"
-    if saturation <= 0.15 and green_ratio >= 0.30 and value >= 0.35:
+    if has_cv_features and saturation <= 0.15 and green_ratio >= 0.30 and value >= 0.35:
         return "晴水"
     if green >= 0.18 or green_ratio >= 0.30:
         if value <= 0.35 and dark >= 0.20:
@@ -803,6 +804,9 @@ def _visual_water_from_signals(
             return "高冰"
         return "冰种"
     if color == "阳绿":
+        clarity_score = _float_signal(water_features, "clarity_score")
+        if texture >= 450 or clarity_score < 0.35:
+            return raw_water or "糯种"
         if style == "手镯" and saturation >= 0.70:
             return "玻璃种" if texture < 260 else "高冰"
         if style == "蛋面" and saturation >= 0.50:
@@ -827,6 +831,9 @@ def _visual_water_from_signals(
             return "豆种"
         return "糯种"
     if color == "绿色":
+        clarity_score = _float_signal(water_features, "clarity_score")
+        if texture >= 120 or clarity_score < 0.55:
+            return raw_water or "糯种"
         return "冰种"
     return ""
 

@@ -1,6 +1,4 @@
-declare const require: any
-
-const fs = require('fs')
+import fs from 'node:fs'
 
 const source = fs.readFileSync('frontend/src/components/LiveSourcePanel.vue', 'utf8')
 

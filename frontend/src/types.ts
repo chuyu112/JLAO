@@ -769,6 +769,7 @@ export interface WsMessage {
 
 export interface ScrcpyDeviceInfo {
   running: boolean
+  state?: string
   serial: string
   last_error: string
   width: number
@@ -779,12 +780,108 @@ export interface ScrcpyDeviceInfo {
   last_exit_code?: number | null
 }
 
+export interface ResourceInfo {
+  running: boolean
+  state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error' | string
+  last_error: string
+  [key: string]: unknown
+}
+
+export interface CaptureStatusInfo {
+  status: string
+  session_id: string
+  resources: {
+    scrcpy_projection: ResourceInfo
+    capture_card_input?: ResourceInfo
+    browser_video_stream: ResourceInfo
+    native_audio_stream: ResourceInfo
+    native_stt: ResourceInfo
+    ocr_capture: ResourceInfo
+    recorder: ResourceInfo
+  }
+  legacy?: Record<string, unknown>
+}
+
+export interface CaptureCardDevice {
+  id: string
+  name: string
+  pnp_class: string
+  status: string
+  device_id: string
+  manufacturer: string
+  service: string
+  is_capture_candidate: boolean
+}
+
+export interface CaptureCardDevicesInfo {
+  status: string
+  platform: string
+  video_devices: CaptureCardDevice[]
+  audio_devices: CaptureCardDevice[]
+  raw_count: number
+  errors: string[]
+}
+
+export interface CaptureCardPreviewInfo {
+  running: boolean
+  state: string
+  session_id: string
+  device_id: string
+  video_index: number
+  width: number
+  height: number
+  fps: number
+  frame_width: number
+  frame_height: number
+  frame_mean?: number
+  frame_std?: number
+  signal_present?: boolean
+  frame_count: number
+  last_error: string
+  started_at: number
+  updated_at: number
+}
+
+export interface SttRuntimeSettings {
+  stt_provider: 'local' | 'aliyun' | string
+  stt_provider_options: Array<{
+    label: string
+    value: string
+    available: boolean
+  }>
+  aliyun_configured: boolean
+  local_stt_engine: string
+  local_stt_device: 'cpu' | 'cuda' | string
+  local_stt_device_options: Array<{
+    label: string
+    value: string
+    available: boolean
+  }>
+  cuda_available: boolean
+  model_cache_loaded: boolean
+}
+
 export interface PhoneCaptureInfo {
   running: boolean
   serial: string
   interval_seconds: number
   last_error: string
   last_frame_id: string | null
+}
+
+export interface NativeAudioInfo {
+  running: boolean
+  state: string
+  serial: string
+  source: string
+  device_id?: string
+  device_name?: string
+  last_error: string
+  audio_chunks: number
+  audio_bytes: number
+  reconnecting?: boolean
+  reconnect_attempts?: number
+  consumers?: string[]
 }
 
 export interface SttStatus {
@@ -795,10 +892,22 @@ export interface SttStatus {
 
 export interface NativeSttInfo {
   running: boolean
+  state?: string
   serial: string
   provider: string
   last_error: string
   audio_chunks: number
   audio_bytes: number
   transcript_segments: number
+}
+
+export interface RecorderInfo {
+  running: boolean
+  state: string
+  last_error: string
+  audio_chunks: number
+  audio_bytes: number
+  output_path: string
+  audio_path: string
+  video_path: string
 }

@@ -3,14 +3,13 @@ import traceback
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from app.auth_utils import decode_access_token
+from app.services.aliyun_stt_service import AliyunSttNotConfigured
 from app.services.local_stt_service import LocalChunkStt, LocalSttNotConfigured
 from app.services.transcript_service import append_transcript
 from app.state import app_state
 from app.ws.manager import manager
 
 router = APIRouter()
-
-STT_PROVIDER = "local"
 
 
 @router.websocket("/ws/sessions/{session_id}/stt")
@@ -47,13 +46,14 @@ async def stt_websocket(
     async def on_error(message: str) -> None:
         await _send_stt_error(websocket, message)
 
-    stt = _create_stt(on_partial=on_partial, on_final=on_final, on_error=on_error)
+    provider = _stt_provider()
+    stt = _create_stt(provider, on_partial=on_partial, on_final=on_final, on_error=on_error)
     audio_chunks = 0
     audio_bytes = 0
     try:
         await stt.connect()
-        print(f"[stt {session_id}] connected provider={STT_PROVIDER}", flush=True)
-        await websocket.send_json({"event": "stt_status", "data": {"status": "connected", "provider": STT_PROVIDER}})
+        print(f"[stt {session_id}] connected provider={provider}", flush=True)
+        await websocket.send_json({"event": "stt_status", "data": {"status": "connected", "provider": provider}})
         while True:
             message = await websocket.receive()
             audio = message.get("bytes")
@@ -63,7 +63,7 @@ async def stt_websocket(
                 if audio_chunks == 1 or audio_chunks % 50 == 0:
                     print(f"[stt {session_id}] audio_chunks={audio_chunks} audio_bytes={audio_bytes}", flush=True)
                 await stt.send_audio(audio)
-    except LocalSttNotConfigured as error:
+    except (LocalSttNotConfigured, AliyunSttNotConfigured) as error:
         await _send_stt_error(websocket, str(error))
     except WebSocketDisconnect:
         pass
@@ -79,7 +79,17 @@ async def stt_websocket(
         await stt.close()
 
 
-def _create_stt(on_partial, on_final, on_error):
+def _stt_provider() -> str:
+    from app.services.runtime_settings_service import get_stt_provider
+
+    return get_stt_provider()
+
+
+def _create_stt(provider: str, on_partial, on_final, on_error):
+    if provider == "aliyun":
+        from app.services.aliyun_stt_service import AliyunRealtimeStt
+
+        return AliyunRealtimeStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
     return LocalChunkStt(on_partial=on_partial, on_final=on_final, on_error=on_error)
 
 

@@ -6,6 +6,7 @@
 import io
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 PADDLEOCR_LANG = os.getenv("PADDLEOCR_LANG", "ch")
 PADDLEOCR_VERSION = os.getenv("PADDLEOCR_VERSION", "PP-OCRv4")
 PADDLEOCR_USE_GPU = os.getenv("PADDLEOCR_USE_GPU", "false").lower() == "true"
+PADDLEOCR_CPU_FALLBACK = os.getenv("PADDLEOCR_CPU_FALLBACK", "true").lower() != "false"
 WORKSPACE_DIR = Path(__file__).resolve().parents[3]
 
 os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(WORKSPACE_DIR / ".paddlex"))
@@ -32,43 +34,57 @@ if not os.access(os.path.expanduser("~"), os.W_OK):
     os.environ.setdefault("HOME", str(WORKSPACE_DIR))
     os.environ.setdefault("USERPROFILE", str(WORKSPACE_DIR))
 
+_CONDA_LIBRARY_BIN = Path(sys.prefix) / "Library" / "bin"
+if _CONDA_LIBRARY_BIN.exists():
+    os.environ["PATH"] = f"{_CONDA_LIBRARY_BIN}{os.pathsep}{os.environ.get('PATH', '')}"
+    if hasattr(os, "add_dll_directory"):
+        os.add_dll_directory(str(_CONDA_LIBRARY_BIN))
+
 # PaddleOCR 引擎（延迟加载）
 _paddleocr_engine = None
 _paddleocr_available = False
+_paddleocr_engine_use_gpu: bool | None = None
 _paddleocr_lock = threading.RLock()
 
 
 def _get_paddleocr_engine():
     """获取或初始化 PaddleOCR 引擎。"""
-    global _paddleocr_engine, _paddleocr_available
+    global _paddleocr_engine, _paddleocr_available, _paddleocr_engine_use_gpu
 
     if _paddleocr_engine is not None:
         return _paddleocr_engine
 
+    _paddleocr_engine = _create_paddleocr_engine(PADDLEOCR_USE_GPU)
+    _paddleocr_engine_use_gpu = PADDLEOCR_USE_GPU
+    _paddleocr_available = True
+    logger.info("PaddleOCR 初始化完成，device=%s", "gpu" if PADDLEOCR_USE_GPU else "cpu")
+    return _paddleocr_engine
+
+
+def _create_paddleocr_engine(use_gpu: bool):
     try:
         from paddleocr import PaddleOCR
 
-        logger.info("正在初始化 PaddleOCR...")
+        logger.info("正在初始化 PaddleOCR，device=%s", "gpu" if use_gpu else "cpu")
         try:
             # PaddleOCR 3.x
-            _paddleocr_engine = PaddleOCR(
+            return PaddleOCR(
                 lang=PADDLEOCR_LANG,
                 ocr_version=PADDLEOCR_VERSION,
+                use_gpu=use_gpu,
+                show_log=False,
                 use_doc_orientation_classify=False,
                 use_doc_unwarping=False,
                 use_textline_orientation=True,
             )
         except Exception:
             # PaddleOCR 2.x
-            _paddleocr_engine = PaddleOCR(
+            return PaddleOCR(
                 use_angle_cls=True,
                 lang=PADDLEOCR_LANG,
-                use_gpu=PADDLEOCR_USE_GPU,
+                use_gpu=use_gpu,
                 show_log=False,
             )
-        _paddleocr_available = True
-        logger.info("PaddleOCR 初始化完成")
-        return _paddleocr_engine
     except ImportError as exc:
         logger.warning("PaddleOCR 未安装：%s", exc)
         raise
@@ -99,15 +115,13 @@ def recognize_with_paddleocr(image_bytes: bytes) -> list[str]:
     except ImportError:
         raise RuntimeError("Pillow 未安装，无法使用 PaddleOCR")
 
-    engine = _get_paddleocr_engine()
-
     try:
         # 将 bytes 转为 PIL Image
         image = Image.open(io.BytesIO(image_bytes))
         # 转为 numpy array
         img_array = np.array(image)
 
-        return _extract_ocr_lines(_run_ocr(engine, img_array))
+        return _recognize_with_cpu_fallback(img_array)
     except Exception as exc:
         raise RuntimeError(f"PaddleOCR 识别失败：{exc}") from exc
 
@@ -121,12 +135,42 @@ def recognize_with_paddleocr_from_path(image_path: Path) -> list[str]:
     Returns:
         识别出的文字行列表
     """
-    engine = _get_paddleocr_engine()
-
     try:
-        return _extract_ocr_lines(_run_ocr(engine, str(image_path)))
+        return _recognize_with_cpu_fallback(str(image_path))
     except Exception as exc:
         raise RuntimeError(f"PaddleOCR 识别失败：{exc}") from exc
+
+
+def _recognize_with_cpu_fallback(image: Any) -> list[str]:
+    global _paddleocr_engine, _paddleocr_engine_use_gpu
+
+    engine = _get_paddleocr_engine()
+    try:
+        return _extract_ocr_lines(_run_ocr(engine, image))
+    except Exception as exc:
+        if not PADDLEOCR_CPU_FALLBACK or not _paddleocr_engine_use_gpu or not _is_gpu_runtime_error(exc):
+            raise
+        logger.warning("PaddleOCR GPU 推理失败，自动降级 CPU：%s", exc)
+        with _paddleocr_lock:
+            _paddleocr_engine = _create_paddleocr_engine(False)
+            _paddleocr_engine_use_gpu = False
+            engine = _paddleocr_engine
+        return _extract_ocr_lines(_run_ocr(engine, image))
+
+
+def _is_gpu_runtime_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "cudnn",
+            "cublas",
+            "cuda",
+            "dynamic library",
+            "preconditionnotmet",
+            "gpu",
+        )
+    )
 
 
 def _run_ocr(engine: Any, image: Any) -> Any:
@@ -192,12 +236,12 @@ def _flatten_ocr_result(value: Any) -> list[Any]:
         return [value]
 
     if isinstance(value, (list, tuple)):
+        if _looks_like_text_score_item(value) or _looks_like_box_text_item(value):
+            return [value]
         flattened: list[Any] = []
         for item in value:
             if isinstance(item, (list, tuple, dict)) and not (
-                isinstance(item, (list, tuple))
-                and len(item) >= 2
-                and isinstance(item[1], (list, tuple))
+                _looks_like_text_score_item(item) or _looks_like_box_text_item(item)
             ):
                 flattened.extend(_flatten_ocr_result(item))
             else:
@@ -214,6 +258,25 @@ def _flatten_ocr_result(value: Any) -> list[Any]:
             return [value]
 
     return [value]
+
+
+def _looks_like_text_score_item(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) >= 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int | float)
+    )
+
+
+def _looks_like_box_text_item(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) >= 2
+        and isinstance(value[1], (list, tuple))
+        and len(value[1]) >= 1
+        and isinstance(value[1][0], str)
+    )
 
 
 # 兼容性别名

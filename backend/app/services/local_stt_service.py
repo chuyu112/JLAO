@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
+from app.services.runtime_settings_service import get_local_stt_device
+
 # 繁体转简体
 try:
     import opencc
@@ -86,6 +88,7 @@ def _merge_funasr_text(current: str, incoming: str) -> str:
 
 class LocalChunkStt:
     _model = None
+    _model_device = ""
     _model_lock = asyncio.Lock()
     _generate_lock = threading.Lock()
 
@@ -227,18 +230,29 @@ class LocalChunkStt:
     @classmethod
     async def _get_model(cls):
         async with cls._model_lock:
-            if cls._model is not None:
+            device = get_local_stt_device()
+            if cls._model is not None and cls._model_device == device:
                 return cls._model
 
             if LOCAL_STT_ENGINE == "funasr":
-                cls._model = await cls._load_funasr_model()
+                cls._model = await cls._load_funasr_model(device)
             else:
-                cls._model = await cls._load_faster_whisper_model()
+                cls._model = await cls._load_faster_whisper_model(device)
+            cls._model_device = device
 
             return cls._model
 
     @classmethod
-    async def _load_funasr_model(cls):
+    def reset_model_cache(cls) -> None:
+        cls._model = None
+        cls._model_device = ""
+
+    @classmethod
+    def model_cache_loaded(cls) -> bool:
+        return cls._model is not None
+
+    @classmethod
+    async def _load_funasr_model(cls, device: str):
         try:
             from funasr import AutoModel
         except ImportError as exc:
@@ -249,7 +263,7 @@ class LocalChunkStt:
         def load_model():
             kwargs = {
                 "model": _resolve_funasr_model(FUNASR_STREAMING_MODEL),
-                "device": LOCAL_STT_DEVICE,
+                "device": device,
                 "disable_update": True,
                 "disable_pbar": True,
                 "log_level": "ERROR",
@@ -267,7 +281,7 @@ class LocalChunkStt:
             raise LocalSttNotConfigured(f"FunASR 流式模型加载失败：{exc}") from exc
 
     @classmethod
-    async def _load_faster_whisper_model(cls):
+    async def _load_faster_whisper_model(cls, device: str):
         try:
             from faster_whisper import WhisperModel
         except ImportError as exc:
@@ -278,7 +292,7 @@ class LocalChunkStt:
         def load_model():
             return WhisperModel(
                 LOCAL_STT_MODEL,
-                device=LOCAL_STT_DEVICE,
+                device=device,
                 compute_type=LOCAL_STT_COMPUTE_TYPE,
             )
 

@@ -118,9 +118,9 @@ def extract_live_room_name(lines: Iterable[str]) -> str:
         for known_name in known_names:
             if known_name in candidate:
                 return canonical_by_label.get(known_name, known_name)
-        # 如果包含"浅玩翡翠"，直接返回固定名称
+        # 如果 OCR 只识别到核心店名，返回固定关注名单里的规范名称。
         if "浅玩翡翠" in candidate:
-            return "浅玩翡翠-2号店"
+            return canonical_by_label.get("浅玩翡翠2号店", "浅玩翡翠2号店")
         if _is_valid_room_name(candidate):
             candidates.append(candidate)
     if not candidates:

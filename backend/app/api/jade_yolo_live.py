@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import os
@@ -11,7 +12,9 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 
+from app.services import capture_card_service
 from app.services.jade_yolo_service import detect_jade_candidates
 from app.state import WORKSPACE_DIR, app_state
 
@@ -90,6 +93,11 @@ class LiveYoloSnapshotState:
     manifest_path: Path
     saved: int = 0
     last_saved_at: float = 0.0
+
+
+class CaptureCardYoloFrameRequest(BaseModel):
+    rotation: int = Field(default=0)
+    mirror: bool = False
 
 
 @dataclass
@@ -341,6 +349,73 @@ async def detect_jade_yolo_frame(session_id: str, file: UploadFile = File(...)) 
                 image_path.unlink(missing_ok=True)
             except Exception:
                 pass
+
+@router.post("/sessions/{session_id}/jade-yolo/detect-capture-card-frame")
+async def detect_capture_card_yolo_frame(session_id: str, payload: CaptureCardYoloFrameRequest) -> dict[str, Any]:
+    if session_id not in app_state.sessions:
+        raise HTTPException(status_code=404, detail="session-not-found")
+    started_at = time.perf_counter()
+    try:
+        data = await capture_card_service.transformed_snapshot(
+            session_id,
+            rotation=payload.rotation,
+            mirror=payload.mirror,
+        )
+        return await _detect_capture_card_yolo_bytes(session_id, data, started_at=started_at)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"YOLO capture-card detection failed: {str(exc)[:160]}") from exc
+
+
+async def _detect_capture_card_yolo_bytes(session_id: str, data: bytes, *, started_at: float) -> dict[str, Any]:
+    upload_dir = WORKSPACE_DIR / "uploads" / "yolo-live" / session_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    image_path = upload_dir / f"{app_state.new_id('yolo-live')}.jpg"
+    try:
+        image_path.write_bytes(data)
+        save_ms = (time.perf_counter() - started_at) * 1000
+        return await asyncio.to_thread(_analyze_live_yolo_image, session_id, image_path, save_ms, started_at)
+    finally:
+        if not os.getenv("JLAO_KEEP_YOLO_LIVE_FRAMES", "").strip():
+            try:
+                image_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _analyze_live_yolo_image(session_id: str, image_path: Path, save_ms: float, started_at: float) -> dict[str, Any]:
+    width, height = _image_size(image_path)
+    snapshot = _maybe_save_live_snapshot(session_id, image_path, width=width, height=height)
+    yolo_started_at = time.perf_counter()
+    candidate_dicts, runtime = _detect_live_jade_candidates(
+        image_path,
+        width=width,
+        height=height,
+    )
+    tracking = _tracker_for_session(session_id).update(candidate_dicts)
+    yolo_ms = (time.perf_counter() - yolo_started_at) * 1000
+    _log_live_yolo_debug(session_id, candidate_dicts, tracking, runtime)
+    return {
+        "status": "ok",
+        "image_width": width,
+        "image_height": height,
+        "detections": tracking.detections,
+        "candidates": candidate_dicts,
+        "tracking": tracking.tracking,
+        "runtime": runtime,
+        "snapshot": snapshot,
+        "live_min_confidence": LIVE_YOLO_MIN_CONFIDENCE,
+        "live_roi": LIVE_YOLO_ROI,
+        "live_confirm_frames": LIVE_YOLO_CONFIRM_FRAMES,
+        "live_hold_frames": LIVE_YOLO_HOLD_FRAMES,
+        "live_switch_frames": LIVE_YOLO_SWITCH_FRAMES,
+        "timings": {
+            "save_ms": round(save_ms, 2),
+            "yolo_ms": round(yolo_ms, 2),
+            "total_ms": round((time.perf_counter() - started_at) * 1000, 2),
+        },
+    }
 
 
 def _detect_live_jade_candidates(

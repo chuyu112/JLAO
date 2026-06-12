@@ -2,48 +2,38 @@
   <section class="yolo-live-panel">
     <div class="yolo-live-head">
       <div class="yolo-live-title">
-        <span>复制视频流 YOLO识别</span>
+        <span>实时视频流</span>
         <small>{{ statusLabel }}</small>
       </div>
-      <div class="yolo-live-actions">
-        <button
-          v-if="!captureActive"
-          :disabled="connectDisabled || captureStarting"
-          @click="startCapture"
-          class="jlao-btn jlao-btn-connect"
-        >
-          <span v-if="captureStarting" class="jlao-btn-spinner"></span>
-          <video-icon v-else :size="18" />
-          接入视频流
-        </button>
-        <template v-else>
-          <button
-            @click="toggleRecording"
-            :class="['jlao-btn', isRecording ? 'jlao-btn-recording' : 'jlao-btn-record']"
-          >
-            <circle-dot v-if="isRecording" :size="16" class="rec-dot" />
-            <circle v-else :size="16" />
-            {{ isRecording ? '停止录屏' : '录屏' }}
-          </button>
-          <button @click="() => stopCapture()" class="jlao-btn jlao-btn-stop">
-            <square :size="14" />
-            停止
-          </button>
-        </template>
+      <div class="yolo-live-head-tags">
+        <span :class="['stream-pill', captureActive ? 'is-on' : '']">视频 {{ captureActive ? '已接入' : '未接入' }}</span>
+        <span :class="['stream-pill', ocrRunning ? 'is-on ocr' : '']">截图/OCR {{ ocrRunning ? '运行中' : '停止' }}</span>
+        <span :class="['stream-pill', recordingRunning ? 'is-on rec' : '']">录屏 {{ recordingRunning ? '运行中' : '停止' }}</span>
       </div>
     </div>
 
     <div ref="stageRef" class="yolo-live-stage">
       <video
-        v-show="captureActive"
+        v-show="captureActive && !backendPreviewActive"
         ref="videoRef"
-        class="yolo-live-video"
+        :class="['yolo-live-video', videoRotationClass, videoMirrorClass, videoFitClass]"
         autoplay
         muted
         playsinline
         @loadedmetadata="handleVideoReady"
       />
+      <img
+        v-show="captureActive && backendPreviewActive"
+        ref="imageRef"
+        :class="['yolo-live-video', videoRotationClass, videoMirrorClass, videoFitClass]"
+        crossorigin="anonymous"
+        alt=""
+        @load="handleBackendImageLoad"
+        @error="handleBackendImageError"
+      />
       <canvas ref="overlayCanvasRef" class="yolo-live-overlay" />
+      <div v-if="captureActive" class="fps-badge">{{ fpsLabel }}</div>
+      <div v-if="backendNoSignal" class="signal-warning">采集卡黑屏 / 无有效画面</div>
       <div v-if="!captureActive" class="yolo-live-empty">
         <span>未接入视频流</span>
       </div>
@@ -63,77 +53,140 @@
         <span class="analysis-value">{{ formatMs(lastTiming?.total_ms) }}</span>
       </div>
       <div class="metric-box yolo-live-metric">
-        <span class="metric-label">主播语音</span>
-        <span class="analysis-value">{{ audioLabel }}</span>
+        <span class="metric-label">FPS</span>
+        <span class="analysis-value">{{ fpsLabel }}</span>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
-import { Square, Video as VideoIcon, Circle, CircleDot } from 'lucide-vue-next'
-import { detectJadeYoloLiveFrame } from '../api/jlao'
+import { detectCaptureCardYoloLiveFrame, detectJadeYoloLiveFrame } from '../api/jlao'
 import type { JadeYoloLiveDetection, JadeYoloLiveDetectionResult } from '../types'
 
 const props = defineProps<{
   sessionId: string | null
+  inputMode?: 'capture_card' | 'scrcpy' | string
+  videoRotation?: number
+  videoMirror?: boolean
+  backendStreamUrl?: string
+  backendFrameCount?: number
+  backendSignalPresent?: boolean
   sourceActive?: boolean
   sourceBlocked?: boolean
-  nativeSttRunning?: boolean
+  staleTimeoutMs?: number
 }>()
 
 const emit = defineEmits<{
-  startStt: []
-  stopStt: []
-  audioFrame: [frame: ArrayBuffer]
   captureStateChange: [active: boolean]
+  captureFrame: [blob: Blob]
+  captureBackendFrame: []
+  recordingBlob: [blob: Blob | null]
 }>()
 
-const DETECT_INTERVAL_MS = 200
+const DETECT_INTERVAL_MS = 1000
+const VIDEO_STALE_TIMEOUT_MS = 3000
+const VIDEO_STALE_CHECK_MS = 1000
 const MAX_CAPTURE_WIDTH = 1920
+const MAX_RECORDING_WIDTH = 1280
+const BACKEND_RECORDING_FPS = 15
+const CAPTURE_CARD_FRAME_UPLOAD_INTERVAL_MS = 5000
+const RECORDING_MIME_TYPES = [
+  'video/webm;codecs=vp9',
+  'video/webm;codecs=vp8',
+  'video/webm',
+]
 const DISPLAY_CANDIDATE_MIN_CONFIDENCE = 0.01
 const DISPLAY_CONFIRMED_MIN_CONFIDENCE = 0.03
 
 const message = useMessage()
 const stageRef = ref<HTMLDivElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
+const imageRef = ref<HTMLImageElement | null>(null)
 const overlayCanvasRef = ref<HTMLCanvasElement | null>(null)
 const captureActive = ref(false)
 const captureStarting = ref(false)
+const ocrRunning = ref(false)
 const detecting = ref(false)
-const audioActive = ref(false)
 const stream = ref<MediaStream | null>(null)
+const backendPreviewActive = ref(false)
+const backendPreviewUrl = ref('')
 const frameTimer = ref<number | null>(null)
-const isRecording = ref(false)
 const mediaRecorder = ref<MediaRecorder | null>(null)
 const recordedChunks = ref<Blob[]>([])
-const recordingStartTime = ref<number>(0)
-const audioContext = ref<AudioContext | null>(null)
-const audioProcessor = ref<ScriptProcessorNode | null>(null)
-const audioSource = ref<MediaStreamAudioSourceNode | null>(null)
+const recordingSourceStream = ref<MediaStream | null>(null)
+const recordingOwnsSourceStream = ref(false)
+const backendRecordingTimer = ref<number | null>(null)
+const recordingRunning = ref(false)
+const recordingStopResolver = ref<((blob: Blob | null) => void) | null>(null)
+const emitDetachedRecording = ref(false)
 const lastResult = ref<JadeYoloLiveDetectionResult | null>(null)
 const lastDetections = ref<JadeYoloLiveDetection[]>([])
 const lastCandidates = ref<JadeYoloLiveDetection[]>([])
+const lastImageSize = ref({ width: 0, height: 0 })
+const lastError = ref('')
+const fps = ref(0)
+const fpsFrameCount = ref(0)
+const fpsWindowStartedAt = ref(0)
+const lastVideoFrameAt = ref(0)
+const lastBackendFrameCount = ref(0)
+const lastBackendFrameSampleAt = ref(0)
+const lastFrameUploadAt = ref(0)
+const staleCheckTimer = ref<number | null>(null)
+const captureCanvas = document.createElement('canvas')
+const recordingCanvas = document.createElement('canvas')
+
 const displayDetections = computed(() => lastDetections.value.filter((detection) => isDisplayableDetection(detection)))
 const displayCandidates = computed(() => lastCandidates.value.filter((detection) => isDisplayableDetection(detection)))
 const overlayDetections = computed(() => displayDetections.value.length ? displayDetections.value : displayCandidates.value)
 const lastTiming = computed(() => lastResult.value?.timings || null)
 const lastTracking = computed(() => lastResult.value?.tracking || null)
-const lastImageSize = ref({ width: 0, height: 0 })
-const lastError = ref('')
-const captureCanvas = document.createElement('canvas')
+const fpsLabel = computed(() => `${fps.value.toFixed(1)} fps`)
+const staleTimeoutMs = computed(() => Math.max(1000, props.staleTimeoutMs || VIDEO_STALE_TIMEOUT_MS))
+const backendNoSignal = computed(() => (
+  props.inputMode === 'capture_card' &&
+  captureActive.value &&
+  Number(props.backendFrameCount || 0) > 0 &&
+  props.backendSignalPresent === false
+))
+const normalizedVideoRotation = computed(() => (
+  props.inputMode === 'capture_card' && Number(props.videoRotation || 0) === 180 ? 180 : 0
+))
+const videoRotationClass = computed(() => (
+  normalizedVideoRotation.value === 180 ? 'is-rotated-180' : ''
+))
+const videoMirrorEnabled = computed(() => (
+  props.inputMode === 'capture_card' && props.videoMirror !== false
+))
+const videoMirrorClass = computed(() => (
+  videoMirrorEnabled.value ? 'is-mirrored' : ''
+))
+const videoFitMode = computed<'contain' | 'cover'>(() => (
+  props.inputMode === 'capture_card' ? 'cover' : 'contain'
+))
+const videoFitClass = computed(() => (
+  videoFitMode.value === 'cover' ? 'is-fill-preview' : ''
+))
+
+watch(
+  () => props.backendFrameCount,
+  (count) => {
+    updateBackendFps(Number(count || 0))
+  },
+)
 
 const statusLabel = computed(() => {
   if (!props.sessionId) return '等待会话'
   if (lastError.value) return lastError.value
-  if (detecting.value) return '检测中'
-  if (lastTracking.value?.status === 'confirmed') return '追踪中'
+  if (backendNoSignal.value) return '采集卡已打开，当前黑屏/无信号'
+  if (!captureActive.value) return '等待接入'
+  if (detecting.value) return '截图识别中'
+  if (lastTracking.value?.status === 'confirmed') return '已确认目标'
   if (lastTracking.value?.status === 'pending') return '候选确认中'
   if (lastTracking.value?.status === 'lost') return '短暂保持'
-  if (captureActive.value) return '运行中'
-  return '待接入'
+  return ocrRunning.value ? '视频运行，截图/OCR运行' : '视频运行'
 })
 
 const detectionLabel = computed(() => {
@@ -141,6 +194,7 @@ const detectionLabel = computed(() => {
   const candidateCount = displayCandidates.value.length
   const tracking = lastTracking.value
   if (!captureActive.value) return '-'
+  if (!ocrRunning.value) return '未启动'
   if (!lastResult.value) return '等待'
   if (count) {
     const best = bestDetection(displayDetections.value)
@@ -159,56 +213,48 @@ const detectionLabel = computed(() => {
     return `候选 ${tracking.stable_frames || 0}/${tracking.confirm_frames || 3}`
   }
   if (!count && lastDetections.value.length) return '待确认'
-  if (!count) return '未确认'
   return '未确认'
 })
-
-const audioLabel = computed(() => {
-  if (!captureActive.value) return '-'
-  if (props.nativeSttRunning) return 'Native 音频已接入'
-  return audioActive.value ? '已接入' : '未共享'
-})
-
-const connectDisabled = computed(() => !props.sessionId || !props.sourceActive || props.sourceBlocked)
 
 async function startCapture(): Promise<boolean> {
   if (captureActive.value) return true
   if (captureStarting.value) return false
   if (props.sourceBlocked) {
-    message.warning('另一个页面正在采集，请先停止采集')
+    message.warning('其它页面正在采集，请先停止后再接入视频流')
     return false
   }
   if (!props.sourceActive) {
-    message.warning('请先点击采集')
+    message.warning('请先启动采集投屏')
     return false
   }
   if (!props.sessionId) {
     message.warning('请先启动直播会话')
     return false
   }
+  if (props.inputMode === 'capture_card') {
+    return startBackendPreviewCapture()
+  }
   if (!navigator.mediaDevices?.getDisplayMedia) {
-    message.error('当前浏览器不支持视频接入')
+    message.error('当前浏览器不支持视频流接入')
     return false
   }
 
+  releaseCaptureStream()
+  await waitForCaptureRelease()
   captureStarting.value = true
   lastError.value = ''
   try {
     stream.value = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        displaySurface: 'window',
-        frameRate: 30,
-      } as MediaTrackConstraints,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      } as MediaTrackConstraints,
-      selfBrowserSurface: 'exclude',
-      systemAudio: 'include',
-      windowAudio: 'system',
-      surfaceSwitching: 'include',
-    } as DisplayMediaStreamOptions & { systemAudio?: string; windowAudio?: string })
+      video: true,
+      audio: false,
+    })
+
+    const videoTracks = stream.value.getVideoTracks()
+    if (!videoTracks.length) {
+      stream.value.getTracks().forEach((track) => track.stop())
+      stream.value = null
+      throw new Error('浏览器没有返回视频轨道')
+    }
 
     captureActive.value = true
     emit('captureStateChange', true)
@@ -218,255 +264,326 @@ async function startCapture(): Promise<boolean> {
       await videoRef.value.play()
     }
 
-    const [videoTrack] = stream.value.getVideoTracks()
+    const [videoTrack] = videoTracks
     videoTrack?.addEventListener('ended', handleVideoTrackEnded)
-    for (const audioTrack of stream.value.getAudioTracks()) {
-      audioTrack.addEventListener('ended', () => {
-        audioActive.value = false
-        stopAudioStreaming()
-      })
-    }
-    if (stream.value.getAudioTracks().length) {
-      if (props.nativeSttRunning) {
-        audioActive.value = false
-        message.info('Native 手机音频转写已运行，跳过浏览器音频采集以避免双重识别。')
-      } else {
-        emit('startStt')
-        await startAudioStreaming(stream.value)
-        audioActive.value = true
-      }
-    } else {
-      audioActive.value = false
-      message.warning('视频已接入，但没有拿到主播音频；请在共享弹窗里选择可共享音频的标签页/窗口并勾选音频。')
-    }
-    startDetectionLoop()
+    startFpsMonitor()
     return true
   } catch (error) {
-    stopCapture()
-    lastError.value = '接入失败'
-    message.error('没有选择直播画面')
+    stopCapture({ keepError: true })
+    lastError.value = displayMediaErrorMessage(error)
+    message.error(lastError.value)
     return false
   } finally {
     captureStarting.value = false
   }
 }
 
-function handleVideoTrackEnded() {
-  if (!captureActive.value) return
-  stopCapture({ keepError: true })
-  lastError.value = '视频流已断开，请重新接入'
-  message.warning('视频流已断开；投屏恢复后请重新点击“接入视频流”')
+async function startBackendPreviewCapture(): Promise<boolean> {
+  if (!props.backendStreamUrl) {
+    message.error('采集卡预览地址未就绪')
+    return false
+  }
+  releaseCaptureStream()
+  await waitForCaptureRelease()
+  captureStarting.value = true
+  lastError.value = ''
+  try {
+    backendPreviewActive.value = true
+    backendPreviewUrl.value = props.backendStreamUrl
+    captureActive.value = true
+    emit('captureStateChange', true)
+    await nextTick()
+    if (imageRef.value) {
+      imageRef.value.src = backendPreviewUrl.value
+    }
+    startBackendPreviewMonitor()
+    return true
+  } finally {
+    captureStarting.value = false
+  }
+}
+
+function displayMediaErrorMessage(error: unknown): string {
+  const err = error as { name?: string; message?: string }
+  const name = err?.name || ''
+  if (name === 'NotAllowedError') return '视频流接入失败：浏览器权限被取消或拒绝'
+  if (name === 'NotFoundError') return '视频流接入失败：没有可共享的窗口或屏幕'
+  if (name === 'NotReadableError') return '视频流接入失败：窗口正被系统或其它程序占用'
+  if (name === 'OverconstrainedError') return '视频流接入失败：浏览器不支持当前采集约束'
+  return `视频流接入失败${err?.message ? `：${err.message}` : ''}`
+}
+
+function waitForCaptureRelease() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, 120))
+}
+
+function releaseCaptureStream() {
+  stream.value?.getTracks().forEach((track) => {
+    track.removeEventListener('ended', handleVideoTrackEnded)
+    track.stop()
+  })
+  stream.value = null
+  if (videoRef.value) videoRef.value.srcObject = null
+  if (imageRef.value) imageRef.value.removeAttribute('src')
+  backendPreviewUrl.value = ''
+  backendPreviewActive.value = false
+  stopFpsMonitor()
 }
 
 function stopCapture(options: { keepError?: boolean } = {}) {
   const wasActive = captureActive.value
-  stopDetectionLoop()
-  stopAudioStreaming()
-  stopRecording()
-  emit('stopStt')
-  stream.value?.getTracks().forEach((track) => track.stop())
-  stream.value = null
+  stopOcr()
+  if (recordingRunning.value && mediaRecorder.value && mediaRecorder.value.state !== 'inactive') {
+    emitDetachedRecording.value = true
+    recordingRunning.value = false
+    mediaRecorder.value?.stop()
+  } else {
+    cleanupRecordingSource()
+  }
+  releaseCaptureStream()
   captureActive.value = false
   detecting.value = false
-  audioActive.value = false
   lastDetections.value = []
   lastCandidates.value = []
   lastResult.value = null
   lastImageSize.value = { width: 0, height: 0 }
-  if (videoRef.value) videoRef.value.srcObject = null
+  lastFrameUploadAt.value = 0
+  fps.value = 0
   if (!options.keepError) lastError.value = ''
   clearOverlay()
   if (wasActive) emit('captureStateChange', false)
 }
 
-// 录屏功能
-function toggleRecording() {
-  if (isRecording.value) {
-    stopRecording()
-  } else {
-    startRecording()
-  }
+function handleVideoTrackEnded() {
+  if (!captureActive.value) return
+  stopCapture({ keepError: true })
+  lastError.value = '视频流已断开，请重新接入'
+  message.warning('视频流已断开，请重新接入')
 }
 
-function startRecording() {
-  if (!stream.value) return
-
-  recordedChunks.value = []
-  recordingStartTime.value = Date.now()
-
-  // 优先使用 vp9 编码，质量更好
-  const mimeTypes = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ]
-
-  let selectedMimeType = ''
-  for (const mimeType of mimeTypes) {
-    if (MediaRecorder.isTypeSupported(mimeType)) {
-      selectedMimeType = mimeType
-      break
-    }
-  }
-
-  try {
-    mediaRecorder.value = selectedMimeType
-      ? new MediaRecorder(stream.value, { mimeType: selectedMimeType })
-      : new MediaRecorder(stream.value)
-  } catch (e) {
-    mediaRecorder.value = new MediaRecorder(stream.value)
-  }
-
-  mediaRecorder.value.ondataavailable = (event) => {
-    if (event.data.size > 0) {
-      recordedChunks.value.push(event.data)
-    }
-  }
-
-  mediaRecorder.value.onstop = () => {
-    saveRecording()
-  }
-
-  mediaRecorder.value.start(100) // 每 100ms 收集一次数据，确保时长信息完整
-  isRecording.value = true
-  message.success('开始录屏')
+function handleVideoStreamStalled() {
+  if (!captureActive.value) return
+  stopCapture({ keepError: true })
+  lastError.value = '视频流无新帧，请重新接入'
+  message.warning('视频流无新帧，请重新接入')
 }
 
-function stopRecording() {
-  if (!mediaRecorder.value || mediaRecorder.value.state === 'inactive') return
-  mediaRecorder.value.stop()
-  isRecording.value = false
-  message.success('录屏已停止，正在转换为 MP4...')
-}
-
-async function saveRecording() {
-  if (recordedChunks.value.length === 0) return
-
-  const durationMs = Date.now() - recordingStartTime.value
-  const webmBlob = new Blob(recordedChunks.value, { type: 'video/webm' })
-
-  try {
-    // 尝试使用 FFmpeg.wasm 转换为 MP4
-    // @ts-ignore - FFmpeg.wasm 动态加载，可能没有类型声明
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg')
-    // @ts-ignore
-    const { toBlobURL } = await import('@ffmpeg/util')
-
-    const ffmpeg = new FFmpeg()
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm'
-
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    })
-
-    // 写入 WebM 文件
-    const webmData = new Uint8Array(await webmBlob.arrayBuffer())
-    await ffmpeg.writeFile('input.webm', webmData)
-
-    // 转换为 MP4
-    await ffmpeg.exec(['-i', 'input.webm', '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', 'output.mp4'])
-
-    // 读取 MP4 文件
-    const mp4Data = await ffmpeg.readFile('output.mp4')
-    const mp4Blob = new Blob([mp4Data as BlobPart], { type: 'video/mp4' })
-
-    downloadBlob(mp4Blob, `recording-${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`)
-    message.success('录屏已保存为 MP4')
-  } catch (e) {
-    // FFmpeg 不可用时，下载 WebM 格式
-    console.warn('FFmpeg 转换失败，保存为 WebM 格式:', e)
-    downloadBlob(webmBlob, `recording-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`)
-    message.warning('MP4 转换失败，已保存为 WebM 格式')
+function startOcr(intervalMs = DETECT_INTERVAL_MS): boolean {
+  if (!captureActive.value) {
+    message.warning('请先接入视频流')
+    return false
   }
-
-  recordedChunks.value = []
+  if (ocrRunning.value) return true
+  ocrRunning.value = true
+  startDetectionLoop(intervalMs)
+  return true
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-// 截图功能
-function takeScreenshot() {
-  if (!videoRef.value) return
-
-  const canvas = document.createElement('canvas')
-  canvas.width = videoRef.value.videoWidth
-  canvas.height = videoRef.value.videoHeight
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  ctx.drawImage(videoRef.value, 0, 0)
-
-  // 添加 YOLO 检测框到截图
-  if (overlayCanvasRef.value) {
-    ctx.drawImage(overlayCanvasRef.value, 0, 0)
-  }
-
-  const url = canvas.toDataURL('image/png')
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-
-  message.success('截图已保存到下载目录')
-}
-
-defineExpose({ startCapture, stopCapture, takeScreenshot })
-
-async function startAudioStreaming(mediaStream: MediaStream) {
-  stopAudioStreaming()
-  const audioTracks = mediaStream.getAudioTracks()
-  if (!audioTracks.length) return
-
-  const context = new AudioContext()
-  const source = context.createMediaStreamSource(new MediaStream(audioTracks))
-  const processor = context.createScriptProcessor(4096, 1, 1)
-  processor.onaudioprocess = (event) => {
-    const input = event.inputBuffer.getChannelData(0)
-    emit('audioFrame', resampleToPcm16(input, context.sampleRate, 16000))
-  }
-
-  const silentOutput = context.createGain()
-  silentOutput.gain.value = 0
-  source.connect(processor)
-  processor.connect(silentOutput)
-  silentOutput.connect(context.destination)
-  audioContext.value = context
-  audioSource.value = source
-  audioProcessor.value = processor
-}
-
-function stopAudioStreaming() {
-  audioProcessor.value?.disconnect()
-  audioSource.value?.disconnect()
-  void audioContext.value?.close()
-  audioProcessor.value = null
-  audioSource.value = null
-  audioContext.value = null
-}
-
-function startDetectionLoop() {
+function stopOcr() {
+  ocrRunning.value = false
   stopDetectionLoop()
-  // 使用 setTimeout 替代 requestAnimationFrame，确保页面不可见时继续运行
-  const loop = () => {
-    if (!captureActive.value) return
-    void detectCurrentFrame()
-    frameTimer.value = window.setTimeout(loop, DETECT_INTERVAL_MS)
+  detecting.value = false
+}
+
+function startRecording(): boolean {
+  if (!captureActive.value) {
+    message.warning('请先接入视频流')
+    return false
   }
-  frameTimer.value = window.setTimeout(loop, 350)
+  if (typeof MediaRecorder === 'undefined') {
+    message.warning('当前浏览器不支持录屏')
+    return false
+  }
+  if (recordingRunning.value) return true
+  if (backendPreviewActive.value && props.inputMode === 'capture_card') {
+    return startBackendPreviewRecording()
+  }
+  if (!stream.value) {
+    message.warning('Video stream is not connected')
+    return false
+  }
+  const videoTracks = stream.value.getVideoTracks()
+  if (!videoTracks.length) {
+    message.warning('视频流没有可录制的视频轨道')
+    return false
+  }
+
+  recordedChunks.value = []
+  const recordingStream = new MediaStream(videoTracks)
+  const recorder = createMediaRecorder(recordingStream)
+  if (!recorder) return false
+  mediaRecorder.value = recorder
+  bindRecorderHandlers()
+  try {
+    recorder.start(250)
+  } catch (error) {
+    mediaRecorder.value = null
+    message.error((error as Error)?.message || '浏览器录屏启动失败')
+    return false
+  }
+  recordingRunning.value = true
+  return true
+}
+
+function stopRecording(): Promise<Blob | null> {
+  if (!mediaRecorder.value || mediaRecorder.value.state === 'inactive') {
+    recordingRunning.value = false
+    cleanupRecordingSource()
+    return Promise.resolve(null)
+  }
+  return new Promise((resolve) => {
+    recordingStopResolver.value = resolve
+    recordingRunning.value = false
+    try {
+      mediaRecorder.value?.requestData()
+    } catch {
+      // Some browsers throw if requestData races with stop.
+    }
+    try {
+      mediaRecorder.value?.stop()
+    } catch {
+      recordingStopResolver.value = null
+      cleanupRecordingSource()
+      resolve(null)
+    }
+  })
+}
+
+function startBackendPreviewRecording(): boolean {
+  if (typeof recordingCanvas.captureStream !== 'function') {
+    message.warning('Canvas recording is not supported by this browser')
+    return false
+  }
+  if (!drawBackendRecordingFrame()) {
+    message.warning('Capture-card preview is not ready')
+    return false
+  }
+
+  recordedChunks.value = []
+  let sourceStream: MediaStream
+  try {
+    sourceStream = recordingCanvas.captureStream(BACKEND_RECORDING_FPS)
+  } catch (error) {
+    cleanupRecordingSource()
+    message.error((error as Error)?.message || 'Canvas recording failed')
+    return false
+  }
+  recordingSourceStream.value = sourceStream
+  recordingOwnsSourceStream.value = true
+
+  const recorder = createMediaRecorder(sourceStream)
+  if (!recorder) {
+    cleanupRecordingSource()
+    return false
+  }
+  mediaRecorder.value = recorder
+  bindRecorderHandlers({ cleanupSource: true })
+  try {
+    recorder.start(500)
+  } catch (error) {
+    mediaRecorder.value = null
+    cleanupRecordingSource()
+    message.error((error as Error)?.message || '浏览器录屏启动失败')
+    return false
+  }
+  recordingRunning.value = true
+  const intervalMs = Math.max(50, Math.round(1000 / BACKEND_RECORDING_FPS))
+  backendRecordingTimer.value = window.setInterval(() => {
+    if (!captureActive.value || !recordingRunning.value) return
+    drawBackendRecordingFrame()
+  }, intervalMs)
+  return true
+}
+
+function createMediaRecorder(sourceStream: MediaStream): MediaRecorder | null {
+  const mimeType = RECORDING_MIME_TYPES.find((item) => MediaRecorder.isTypeSupported(item)) || ''
+  try {
+    return mimeType
+      ? new MediaRecorder(sourceStream, { mimeType })
+      : new MediaRecorder(sourceStream)
+  } catch (error) {
+    try {
+      return new MediaRecorder(sourceStream)
+    } catch {
+      message.error((error as Error)?.message || '浏览器录屏初始化失败')
+      return null
+    }
+  }
+}
+
+function bindRecorderHandlers(options: { cleanupSource?: boolean } = {}) {
+  const recorder = mediaRecorder.value
+  if (!recorder) return
+  recorder.ondataavailable = (event) => {
+    if (event.data.size > 0) recordedChunks.value.push(event.data)
+  }
+  recorder.onstop = () => {
+    const blob = recordedChunks.value.length ? new Blob(recordedChunks.value, { type: 'video/webm' }) : null
+    const resolve = recordingStopResolver.value
+    recordingStopResolver.value = null
+    recordedChunks.value = []
+    mediaRecorder.value = null
+    recordingRunning.value = false
+    if (options.cleanupSource) cleanupRecordingSource()
+    if (emitDetachedRecording.value) {
+      emitDetachedRecording.value = false
+      emit('recordingBlob', blob)
+    } else {
+      resolve?.(blob)
+    }
+  }
+}
+
+function cleanupRecordingSource() {
+  if (backendRecordingTimer.value) {
+    clearInterval(backendRecordingTimer.value)
+    backendRecordingTimer.value = null
+  }
+  if (recordingOwnsSourceStream.value) {
+    recordingSourceStream.value?.getTracks().forEach((track) => track.stop())
+  }
+  recordingSourceStream.value = null
+  recordingOwnsSourceStream.value = false
+}
+
+function drawBackendRecordingFrame(): boolean {
+  const image = imageRef.value
+  const sourceWidth = image?.naturalWidth || 0
+  const sourceHeight = image?.naturalHeight || 0
+  if (!image || !sourceWidth || !sourceHeight) return false
+
+  const scale = Math.min(1, MAX_RECORDING_WIDTH / sourceWidth)
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+  if (recordingCanvas.width !== width) recordingCanvas.width = width
+  if (recordingCanvas.height !== height) recordingCanvas.height = height
+
+  const context = recordingCanvas.getContext('2d')
+  if (!context) return false
+  context.fillStyle = '#000'
+  context.fillRect(0, 0, width, height)
+
+  if (normalizedVideoRotation.value === 180 || videoMirrorEnabled.value) {
+    context.save()
+    context.translate(width / 2, height / 2)
+    if (normalizedVideoRotation.value === 180) context.rotate(Math.PI)
+    context.scale(videoMirrorEnabled.value ? -1 : 1, 1)
+    context.drawImage(image, -width / 2, -height / 2, width, height)
+    context.restore()
+  } else {
+    context.drawImage(image, 0, 0, width, height)
+  }
+  return true
+}
+
+function startDetectionLoop(intervalMs = DETECT_INTERVAL_MS) {
+  stopDetectionLoop()
+  const loop = () => {
+    if (!captureActive.value || !ocrRunning.value) return
+    void detectCurrentFrame()
+    frameTimer.value = window.setTimeout(loop, Math.max(500, intervalMs))
+  }
+  frameTimer.value = window.setTimeout(loop, 250)
 }
 
 function stopDetectionLoop() {
@@ -477,14 +594,23 @@ function stopDetectionLoop() {
 }
 
 async function detectCurrentFrame() {
-  if (!captureActive.value || !props.sessionId || detecting.value) return
-  const blob = await captureFrameBlob()
-  if (!blob) return
-
+  if (!captureActive.value || !ocrRunning.value || !props.sessionId || detecting.value) return
   detecting.value = true
   try {
-    const result = await detectJadeYoloLiveFrame(props.sessionId, blob)
-    if (!captureActive.value) return
+    let result: JadeYoloLiveDetectionResult
+    if (backendPreviewActive.value && props.inputMode === 'capture_card') {
+      maybeCaptureBackendFrame()
+      result = await detectCaptureCardYoloLiveFrame(props.sessionId, {
+        rotation: normalizedVideoRotation.value,
+        mirror: videoMirrorEnabled.value,
+      })
+    } else {
+      const blob = await captureFrameBlob()
+      if (!blob) return
+      emit('captureFrame', blob)
+      result = await detectJadeYoloLiveFrame(props.sessionId, blob)
+    }
+    if (!captureActive.value || !ocrRunning.value) return
     lastResult.value = result
     lastDetections.value = result.detections || []
     lastCandidates.value = result.candidates || []
@@ -502,19 +628,39 @@ async function detectCurrentFrame() {
   }
 }
 
+function maybeCaptureBackendFrame() {
+  const now = performance.now()
+  if (lastFrameUploadAt.value && now - lastFrameUploadAt.value < CAPTURE_CARD_FRAME_UPLOAD_INTERVAL_MS) return
+  lastFrameUploadAt.value = now
+  emit('captureBackendFrame')
+}
+
 async function captureFrameBlob() {
   const video = videoRef.value
-  if (!video?.videoWidth || !video.videoHeight) return null
+  const image = imageRef.value
+  const source = backendPreviewActive.value ? image : video
+  const sourceWidth = backendPreviewActive.value ? image?.naturalWidth : video?.videoWidth
+  const sourceHeight = backendPreviewActive.value ? image?.naturalHeight : video?.videoHeight
+  if (!source || !sourceWidth || !sourceHeight) return null
 
-  const scale = Math.min(1, MAX_CAPTURE_WIDTH / video.videoWidth)
-  const width = Math.round(video.videoWidth * scale)
-  const height = Math.round(video.videoHeight * scale)
+  const scale = Math.min(1, MAX_CAPTURE_WIDTH / sourceWidth)
+  const width = Math.round(sourceWidth * scale)
+  const height = Math.round(sourceHeight * scale)
   captureCanvas.width = width
   captureCanvas.height = height
   const context = captureCanvas.getContext('2d')
   if (!context) return null
 
-  context.drawImage(video, 0, 0, width, height)
+  if (normalizedVideoRotation.value === 180 || videoMirrorEnabled.value) {
+    context.save()
+    context.translate(width / 2, height / 2)
+    if (normalizedVideoRotation.value === 180) context.rotate(Math.PI)
+    context.scale(videoMirrorEnabled.value ? -1 : 1, 1)
+    context.drawImage(source, -width / 2, -height / 2, width, height)
+    context.restore()
+  } else {
+    context.drawImage(source, 0, 0, width, height)
+  }
   return new Promise<Blob | null>((resolve) => captureCanvas.toBlob(resolve, 'image/jpeg', 0.82))
 }
 
@@ -530,12 +676,16 @@ function resizeOverlay() {
   const ratio = window.devicePixelRatio || 1
   const width = Math.max(1, Math.round(stage.clientWidth))
   const height = Math.max(1, Math.round(stage.clientHeight))
-  canvas.width = Math.round(width * ratio)
-  canvas.height = Math.round(height * ratio)
-  canvas.style.width = `${width}px`
-  canvas.style.height = `${height}px`
+  const pixelWidth = Math.round(width * ratio)
+  const pixelHeight = Math.round(height * ratio)
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight
+  const cssWidth = `${width}px`
+  const cssHeight = `${height}px`
+  if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth
+  if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight
   const context = canvas.getContext('2d')
-  if (context) context.scale(ratio, ratio)
+  if (context) context.setTransform(ratio, 0, 0, ratio, 0, 0)
 }
 
 function drawOverlay() {
@@ -551,7 +701,9 @@ function drawOverlay() {
   const stageHeight = stage.clientHeight
   context.clearRect(0, 0, stageWidth, stageHeight)
 
-  const scale = Math.min(stageWidth / imageWidth, stageHeight / imageHeight)
+  const scale = videoFitMode.value === 'cover'
+    ? Math.max(stageWidth / imageWidth, stageHeight / imageHeight)
+    : Math.min(stageWidth / imageWidth, stageHeight / imageHeight)
   const drawWidth = imageWidth * scale
   const drawHeight = imageHeight * scale
   const offsetX = (stageWidth - drawWidth) / 2
@@ -602,17 +754,102 @@ function formatMs(value: number | undefined | null) {
   return typeof value === 'number' ? `${Math.round(value)}ms` : '-'
 }
 
-function resampleToPcm16(input: Float32Array, inputSampleRate: number, outputSampleRate: number) {
-  const ratio = inputSampleRate / outputSampleRate
-  const outputLength = Math.floor(input.length / ratio)
-  const buffer = new ArrayBuffer(outputLength * 2)
-  const view = new DataView(buffer)
-  for (let index = 0; index < outputLength; index += 1) {
-    const sample = Math.max(-1, Math.min(1, input[Math.floor(index * ratio)]))
-    view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+function startFpsMonitor() {
+  const video = videoRef.value as (HTMLVideoElement & {
+    requestVideoFrameCallback?: (callback: () => void) => number
+  }) | null
+  stopFpsMonitor()
+  fpsFrameCount.value = 0
+  fpsWindowStartedAt.value = performance.now()
+  lastVideoFrameAt.value = fpsWindowStartedAt.value
+  const tick = () => {
+    if (!captureActive.value) return
+    lastVideoFrameAt.value = performance.now()
+    fpsFrameCount.value += 1
+    const now = performance.now()
+    if (now - fpsWindowStartedAt.value >= 1000) {
+      fps.value = (fpsFrameCount.value * 1000) / (now - fpsWindowStartedAt.value)
+      fpsFrameCount.value = 0
+      fpsWindowStartedAt.value = now
+    }
+    if (video?.requestVideoFrameCallback) {
+      video.requestVideoFrameCallback(tick)
+    } else {
+      window.requestAnimationFrame(tick)
+    }
   }
-  return buffer
+  staleCheckTimer.value = window.setInterval(() => {
+    if (!captureActive.value) return
+    if (performance.now() - lastVideoFrameAt.value > staleTimeoutMs.value) {
+      handleVideoStreamStalled()
+    }
+  }, VIDEO_STALE_CHECK_MS)
+  if (video?.requestVideoFrameCallback) {
+    video.requestVideoFrameCallback(tick)
+  } else {
+    window.requestAnimationFrame(tick)
+  }
 }
+
+function startBackendPreviewMonitor() {
+  stopFpsMonitor()
+  fps.value = 0
+  lastVideoFrameAt.value = performance.now()
+  resetBackendFpsCounter()
+  staleCheckTimer.value = window.setInterval(() => {
+    if (!captureActive.value || !backendPreviewActive.value) return
+    // Browser MJPEG <img> does not expose per-frame callbacks reliably.
+    lastVideoFrameAt.value = performance.now()
+  }, VIDEO_STALE_CHECK_MS)
+}
+
+function resetBackendFpsCounter() {
+  lastBackendFrameCount.value = Number(props.backendFrameCount || 0)
+  lastBackendFrameSampleAt.value = performance.now()
+}
+
+function updateBackendFps(frameCount: number) {
+  const now = performance.now()
+  if (!captureActive.value || !backendPreviewActive.value) {
+    lastBackendFrameCount.value = frameCount
+    lastBackendFrameSampleAt.value = now
+    return
+  }
+  if (!lastBackendFrameSampleAt.value || frameCount < lastBackendFrameCount.value) {
+    lastBackendFrameCount.value = frameCount
+    lastBackendFrameSampleAt.value = now
+    return
+  }
+  const elapsedMs = now - lastBackendFrameSampleAt.value
+  const frameDelta = frameCount - lastBackendFrameCount.value
+  if (elapsedMs < 500 || frameDelta <= 0) return
+  fps.value = (frameDelta * 1000) / elapsedMs
+  lastBackendFrameCount.value = frameCount
+  lastBackendFrameSampleAt.value = now
+  lastVideoFrameAt.value = now
+}
+
+function stopFpsMonitor() {
+  if (staleCheckTimer.value) {
+    clearInterval(staleCheckTimer.value)
+    staleCheckTimer.value = null
+  }
+}
+
+function handleBackendImageLoad() {
+  lastVideoFrameAt.value = performance.now()
+  resizeOverlay()
+  drawOverlay()
+}
+
+function handleBackendImageError() {
+  if (!captureActive.value || !backendPreviewActive.value) return
+  stopCapture({ keepError: true })
+  lastError.value = '采集卡预览流已断开'
+  message.warning(lastError.value)
+}
+
+defineExpose({ startCapture, stopCapture, startOcr, stopOcr, startRecording, stopRecording })
 
 onMounted(() => {
   window.addEventListener('resize', drawOverlay)
@@ -630,11 +867,13 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: 42px minmax(0, 1fr) 68px;
   background: #020407;
+  overflow: hidden;
 }
 
 .yolo-live-head {
+  height: 42px;
   min-height: 42px;
   display: flex;
   align-items: center;
@@ -643,7 +882,7 @@ onBeforeUnmount(() => {
   padding: 8px 10px;
   border-bottom: 1px solid #1c2b35;
   background: #0b1219;
-  flex-wrap: wrap;
+  overflow: hidden;
 }
 
 .yolo-live-title {
@@ -651,7 +890,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1 1 auto;
   overflow: hidden;
 }
 
@@ -669,165 +907,46 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.yolo-live-actions {
-  flex: 0 0 auto;
+.yolo-live-head-tags {
   display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.yolo-live-title {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.yolo-live-title span {
-  color: #f1fff9;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.yolo-live-title small {
-  overflow: hidden;
-  color: #8fa6af;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.yolo-live-actions {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* JLAO 自定义按钮 - 匹配整体暗色风格 */
-.jlao-btn {
-  display: inline-flex;
-  align-items: center;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
   gap: 6px;
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  outline: none;
-  white-space: nowrap;
-  font-family: inherit;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.jlao-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-/* 接入视频流 - 绿色主按钮，凸起 */
-.jlao-btn-connect {
-  padding: 10px 24px;
-  font-size: 15px;
+.stream-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 86px;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #7d909a;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
   font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #22d3a6, #12a97f);
-  border-color: rgba(34, 211, 166, 0.3);
-  box-shadow:
-    0 3px 8px rgba(34, 211, 166, 0.35),
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  transform: translateY(-1px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.jlao-btn-connect:hover:not(:disabled) {
-  background: linear-gradient(135deg, #5ee8c7, #22d3a6);
-  transform: translateY(-2px);
-  box-shadow:
-    0 6px 20px rgba(34, 211, 166, 0.5),
-    0 2px 6px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+.stream-pill.is-on {
+  color: #dffcf4;
+  border-color: rgba(43, 190, 255, 0.45);
+  background: rgba(43, 190, 255, 0.12);
 }
 
-.jlao-btn-connect:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow:
-    0 1px 4px rgba(34, 211, 166, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  background: linear-gradient(135deg, #12a97f, #0e8a65);
+.stream-pill.ocr {
+  border-color: rgba(245, 158, 11, 0.48);
+  background: rgba(245, 158, 11, 0.13);
 }
 
-/* 录屏按钮 - 橙色 */
-.jlao-btn-record {
-  color: #fff;
-  background: rgba(255, 209, 102, 0.15);
-  border-color: rgba(255, 209, 102, 0.4);
-  box-shadow: 0 2px 6px rgba(255, 209, 102, 0.2);
-}
-
-.jlao-btn-record:hover:not(:disabled) {
-  background: rgba(255, 209, 102, 0.25);
-  border-color: rgba(255, 209, 102, 0.6);
-  box-shadow: 0 3px 10px rgba(255, 209, 102, 0.35);
-}
-
-/* 录屏中 - 红色脉冲 */
-.jlao-btn-recording {
-  color: #fff;
-  background: rgba(208, 48, 60, 0.2);
-  border-color: rgba(208, 48, 60, 0.5);
-  box-shadow: 0 2px 6px rgba(208, 48, 60, 0.3);
-  animation: pulse-rec 1.5s ease-in-out infinite;
-}
-
-.jlao-btn-recording:hover:not(:disabled) {
-  background: rgba(208, 48, 60, 0.35);
-  border-color: rgba(208, 48, 60, 0.7);
-}
-
-.rec-dot {
-  animation: blink-rec 1s step-end infinite;
-}
-
-@keyframes pulse-rec {
-  0%, 100% { box-shadow: 0 2px 6px rgba(208, 48, 60, 0.3); }
-  50% { box-shadow: 0 4px 14px rgba(208, 48, 60, 0.6); }
-}
-
-@keyframes blink-rec {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-/* 停止按钮 - 灰色 */
-.jlao-btn-stop {
-  color: #dce9e4;
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.jlao-btn-stop:hover:not(:disabled) {
-  background: rgba(208, 48, 60, 0.15);
-  border-color: rgba(208, 48, 60, 0.4);
-  color: #ff6b7a;
-}
-
-/* 加载中 spinner */
-.jlao-btn-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.stream-pill.rec {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.14);
 }
 
 .yolo-live-stage {
@@ -852,10 +971,57 @@ onBeforeUnmount(() => {
 .yolo-live-video {
   object-fit: contain;
   background: #000;
+  transform-origin: center;
+}
+
+.yolo-live-video.is-fill-preview {
+  object-fit: cover;
+}
+
+.yolo-live-video.is-rotated-180 {
+  transform: rotate(180deg);
+}
+
+.yolo-live-video.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.yolo-live-video.is-rotated-180.is-mirrored {
+  transform: rotate(180deg) scaleX(-1);
 }
 
 .yolo-live-overlay {
   pointer-events: none;
+}
+
+.fps-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 7px;
+  border: 1px solid rgba(34, 211, 166, 0.35);
+  border-radius: 6px;
+  color: #dcfff6;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.signal-warning {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  max-width: calc(100% - 96px);
+  padding: 5px 8px;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-radius: 6px;
+  color: #ffe6b0;
+  background: rgba(0, 0, 0, 0.62);
+  font-size: 12px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .yolo-live-empty {
@@ -867,18 +1033,48 @@ onBeforeUnmount(() => {
 }
 
 .yolo-live-metrics {
+  height: 68px;
+  min-height: 68px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding: 8px;
   border-top: 1px solid #1c2b35;
   background: #0b1219;
-  position: relative;
-  z-index: 10;
+  overflow: hidden;
 }
 
 .yolo-live-metric {
-  min-height: 52px;
-  padding: 7px 8px;
+  height: 52px;
+  max-height: 52px;
+  min-width: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 14px 20px;
+  align-content: center;
+  gap: 3px;
+}
+
+.yolo-live-metric .analysis-value {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+  line-height: 20px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yolo-live-metric .metric-label {
+  display: block;
+  height: 14px;
+  line-height: 14px;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

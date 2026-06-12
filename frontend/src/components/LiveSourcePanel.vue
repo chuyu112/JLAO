@@ -75,9 +75,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   update: [url: string | null]
-  startStt: []
-  stopStt: []
-  audioFrame: [frame: ArrayBuffer]
   captureFrame: [frame: Blob]
 }>()
 
@@ -85,13 +82,8 @@ const message = useMessage()
 const captureVideo = ref<HTMLVideoElement | null>(null)
 const captureActive = ref(false)
 const captureStarting = ref(false)
-const audioActive = ref(false)
 const captureMode = ref<CaptureMode | null>(null)
 const stream = ref<MediaStream | null>(null)
-const audioContext = ref<AudioContext | null>(null)
-const audioProcessor = ref<ScriptProcessorNode | null>(null)
-const audioSource = ref<MediaStreamAudioSourceNode | null>(null)
-const projectedAudioStream = ref<MediaStream | null>(null)
 const frameTimer = ref<number | null>(null)
 const captureFrameBusy = ref(false)
 const imageCapture = ref<{ grabFrame: () => Promise<ImageBitmap> } | null>(null)
@@ -220,6 +212,8 @@ async function startWindowCapture(mode: CaptureMode) {
     return
   }
 
+  stopWindowCapture()
+  await waitForCaptureRelease()
   captureStarting.value = true
   try {
     const displaySurface = mode === 'tab' ? 'browser' : 'window'
@@ -230,7 +224,7 @@ async function startWindowCapture(mode: CaptureMode) {
         width: { ideal: 1920 },
         height: { ideal: 1080 },
       } as MediaTrackConstraints,
-      audio: true,
+      audio: false,
       preferCurrentTab: false,
       selfBrowserSurface: 'exclude',
       systemAudio: 'exclude',
@@ -239,38 +233,26 @@ async function startWindowCapture(mode: CaptureMode) {
 
     stream.value = await navigator.mediaDevices.getDisplayMedia(mediaOptions)
 
-    audioActive.value = stream.value.getAudioTracks().length > 0
     captureMode.value = mode
     captureActive.value = true
     await nextTick()
 
     if (captureVideo.value) {
       captureVideo.value.srcObject = stream.value
-      captureVideo.value.muted = false
-      captureVideo.value.volume = 1
+      captureVideo.value.muted = true
       await captureVideo.value.play()
     }
 
-    message.success(audioActive.value ? '直播标签页画面和声音已接入；开始每秒截图识别' : '直播标签页画面已接入；开始每秒截图识别')
+    message.success('直播画面已接入；开始每秒截图识别')
     startFrameCaptureLoop()
-
-    // 启动音频采集（如果有音频轨道）
-    if (audioActive.value) {
-      emit('startStt')
-      await startAudioStreaming(stream.value)
-    }
 
     const [videoTrack] = stream.value.getVideoTracks()
     if ('ImageCapture' in window && videoTrack) {
       imageCapture.value = new (window as unknown as { ImageCapture: new (track: MediaStreamTrack) => { grabFrame: () => Promise<ImageBitmap> } }).ImageCapture(videoTrack)
     }
     videoTrack.addEventListener('ended', stopWindowCapture)
-    for (const audioTrack of stream.value.getAudioTracks()) {
-      audioTrack.addEventListener('ended', () => {
-        audioActive.value = false
-      })
-    }
   } catch (error) {
+    stopWindowCapture()
     const secure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     message.error(secure ? '没有选择采集来源。' : '浏览器要求 HTTPS 或 localhost 才能接入直播音画。')
   } finally {
@@ -278,39 +260,18 @@ async function startWindowCapture(mode: CaptureMode) {
   }
 }
 
+function waitForCaptureRelease() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, 120))
+}
+
 function stopWindowCapture() {
   stopFrameCaptureLoop()
-  stopAudioStreaming()
-  emit('stopStt')
   stream.value?.getTracks().forEach((track) => track.stop())
   stream.value = null
   imageCapture.value = null
   captureMode.value = null
   captureActive.value = false
-  audioActive.value = false
   if (captureVideo.value) captureVideo.value.srcObject = null
-}
-
-async function startAudioStreaming(mediaStream: MediaStream) {
-  stopAudioStreaming()
-  const audioTracks = mediaStream.getAudioTracks()
-  if (audioTracks.length === 0) return
-
-  const context = new AudioContext()
-  const source = context.createMediaStreamSource(new MediaStream(audioTracks))
-  const processor = context.createScriptProcessor(4096, 1, 1)
-  processor.onaudioprocess = (event) => {
-    const input = event.inputBuffer.getChannelData(0)
-    emit('audioFrame', resampleToPcm16(input, context.sampleRate, 16000))
-  }
-  const silentOutput = context.createGain()
-  silentOutput.gain.value = 0
-  source.connect(processor)
-  processor.connect(silentOutput)
-  silentOutput.connect(context.destination)
-  audioContext.value = context
-  audioSource.value = source
-  audioProcessor.value = processor
 }
 
 async function startProjectedAudioCapture() {
@@ -319,20 +280,7 @@ async function startProjectedAudioCapture() {
 }
 
 function stopProjectedAudioCapture() {
-  stopAudioStreaming()
-  projectedAudioStream.value?.getTracks().forEach((track) => track.stop())
-  projectedAudioStream.value = null
-  audioActive.value = false
-  emit('stopStt')
-}
-
-function stopAudioStreaming() {
-  audioProcessor.value?.disconnect()
-  audioSource.value?.disconnect()
-  audioContext.value?.close()
-  audioProcessor.value = null
-  audioSource.value = null
-  audioContext.value = null
+  stopWindowCapture()
 }
 
 function startFrameCaptureLoop() {
@@ -417,18 +365,6 @@ function formatScore(value: number | null | undefined) {
   return value == null ? '-' : String(Math.round(value))
 }
 
-function resampleToPcm16(input: Float32Array, inputSampleRate: number, outputSampleRate: number) {
-  const ratio = inputSampleRate / outputSampleRate
-  const outputLength = Math.floor(input.length / ratio)
-  const buffer = new ArrayBuffer(outputLength * 2)
-  const view = new DataView(buffer)
-  for (let index = 0; index < outputLength; index += 1) {
-    const sample = Math.max(-1, Math.min(1, input[Math.floor(index * ratio)]))
-    view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
-  }
-  return buffer
-}
-
 defineExpose({
   startProjectedAudioCapture,
   stopProjectedAudioCapture,
@@ -436,7 +372,6 @@ defineExpose({
 
 onBeforeUnmount(() => {
   stopWindowCapture()
-  stopProjectedAudioCapture()
 })
 </script>
 

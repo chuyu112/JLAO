@@ -3,13 +3,10 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.repositories import save_capture_archive
-from app.schemas import CaptureArchiveItem
-from app.state import WORKSPACE_DIR, app_state
+from app.state import app_state
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -47,6 +44,7 @@ SCRCPY_MAX_SIZE = 1080  # 限制最大边长 1080，防止窗口超出屏幕
 WINDOWS_DRIVER_ROOT = "D:\\"
 SCRCPY_RECONNECT_INITIAL_DELAY_SECONDS = 2.0
 SCRCPY_RECONNECT_MAX_DELAY_SECONDS = 15.0
+SCRCPY_RECONNECT_MAX_ATTEMPTS = 1
 SCRCPY_ADB_RECONNECT_TIMEOUT_SECONDS = 45.0
 
 
@@ -158,6 +156,32 @@ def _find_existing(candidates: list[str]) -> str | None:
     return None
 
 
+def _scan_drive_root_scrcpy_candidates(root: str = WINDOWS_DRIVER_ROOT) -> dict[str, list[str]]:
+    candidates: dict[str, list[str]] = {"scrcpy": [], "qtscrcpy": []}
+    if not os.path.isdir(root):
+        return candidates
+
+    def add_if_file(path: str, key: str) -> None:
+        if os.path.isfile(path):
+            candidates[key].append(path)
+
+    add_if_file(os.path.join(root, "scrcpy.exe"), "scrcpy")
+    add_if_file(os.path.join(root, "QtScrcpy.exe"), "qtscrcpy")
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return candidates
+    for entry in entries:
+        try:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        add_if_file(os.path.join(entry.path, "scrcpy.exe"), "scrcpy")
+        add_if_file(os.path.join(entry.path, "QtScrcpy.exe"), "qtscrcpy")
+    return candidates
+
+
 def _get_scrcpy_exe() -> str | None:
     # 优先使用用户指定的路径
     if _user_scrcpy_path and _scrcpy_driver_type(_user_scrcpy_path) == "scrcpy":
@@ -188,6 +212,19 @@ def _format_bit_rate(bit_rate: int) -> str:
     return str(bit_rate)
 
 
+def _append_optional_window_options(command: list[str]) -> None:
+    option_map = {
+        "JLAO_SCRCPY_WINDOW_X": "--window-x",
+        "JLAO_SCRCPY_WINDOW_Y": "--window-y",
+        "JLAO_SCRCPY_WINDOW_WIDTH": "--window-width",
+        "JLAO_SCRCPY_WINDOW_HEIGHT": "--window-height",
+    }
+    for env_name, flag in option_map.items():
+        value = os.getenv(env_name, "").strip()
+        if value:
+            command.extend([flag, value])
+
+
 def _build_qtscrcpy_launch(qtscrcpy_exe: str) -> ScrcpyLaunch:
     return ScrcpyLaunch(
         command=[qtscrcpy_exe, "--jlao-usb-connect"],
@@ -200,7 +237,6 @@ def _build_scrcpy_command(
     serial: str,
     max_size: int,
     bit_rate: int,
-    record_path: Path | None = None,
 ) -> ScrcpyLaunch:
     if _user_scrcpy_path and _scrcpy_driver_type(_user_scrcpy_path) == "qtscrcpy":
         return _build_qtscrcpy_launch(_user_scrcpy_path)
@@ -223,21 +259,13 @@ def _build_scrcpy_command(
     if bit_rate > 0:
         command.extend(["-b", _format_bit_rate(bit_rate)])
 
-    command.append("--audio-source=playback")
-    if record_path:
-        command.extend(["--record", str(record_path), "--record-format", "mp4"])
-    command.extend(["--window-title", f"JLAO 投屏 - {cleaned_serial or '默认设备'}"])
-    command.extend(["--window-x", "0", "--window-y", "0"])
+    command.append("--no-audio")
+    max_fps = int(os.getenv("JLAO_SCRCPY_MAX_FPS", "20") or "20")
+    if max_fps > 0:
+        command.extend(["--max-fps", str(max_fps)])
+    command.extend(["--window-title", f"JLAO Projection - {cleaned_serial or 'default-device'}"])
+    _append_optional_window_options(command)
     return ScrcpyLaunch(command=command, cwd=None, mode="scrcpy")
-
-def _new_recording_path(session_id: str) -> tuple[Path, str]:
-    upload_dir = WORKSPACE_DIR / "uploads" / "recordings" / session_id
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-    record_path = upload_dir / f"screen-{stamp}.mp4"
-    record_url = f"/uploads/recordings/{session_id}/{record_path.name}"
-    return record_path, record_url
-
 
 async def _read_stderr(proc: asyncio.subprocess.Process, session_id: str) -> str:
     messages: list[str] = []
@@ -274,14 +302,12 @@ async def _scrcpy_supervisor(session_id: str) -> None:
                 task_state.last_error = "投屏已断开，正在自动重连..."
 
             launch: ScrcpyLaunch | None = None
-            record_path: Path | None = None
             stderr_task: asyncio.Task[str] | None = None
             proc: asyncio.subprocess.Process | None = None
             try:
-                record_path, record_url = _new_recording_path(session_id)
-                launch = _build_scrcpy_command(task_state.serial, task_state.max_size, task_state.bit_rate, record_path=record_path)
+                launch = _build_scrcpy_command(task_state.serial, task_state.max_size, task_state.bit_rate)
                 task_state.mode = launch.mode
-                task_state.recording_path = record_url if launch.mode == "scrcpy" else ""
+                task_state.recording_path = ""
                 print(f"[scrcpy {session_id}] Starting native window ({launch.mode}): {' '.join(launch.command)}")
 
                 proc = await asyncio.create_subprocess_exec(
@@ -301,9 +327,6 @@ async def _scrcpy_supervisor(session_id: str) -> None:
                     reconnect_delay = SCRCPY_RECONNECT_INITIAL_DELAY_SECONDS
                     if not first_launch:
                         print(f"[scrcpy {session_id}] Reconnected after {task_state.reconnect_attempts} attempt(s)")
-                    if launch.mode == "scrcpy" and record_path is not None:
-                        _archive_recording(session_id, task_state, record_path)
-
                 return_code = await proc.wait()
                 stderr_text = await stderr_task
                 task_state.last_exit_code = return_code
@@ -329,6 +352,11 @@ async def _scrcpy_supervisor(session_id: str) -> None:
                     f"[scrcpy {session_id}] exited code={return_code}; "
                     f"auto reconnect attempt={task_state.reconnect_attempts} delay={reconnect_delay:.0f}s"
                 )
+                if task_state.reconnect_attempts > SCRCPY_RECONNECT_MAX_ATTEMPTS:
+                    task_state.running = False
+                    task_state.reconnecting = False
+                    task_state.last_error = stderr_text or f"scrcpy exited code={return_code}; reconnect limit reached"
+                    break
             except asyncio.CancelledError:
                 if stderr_task:
                     stderr_task.cancel()
@@ -339,6 +367,11 @@ async def _scrcpy_supervisor(session_id: str) -> None:
                 task_state.reconnecting = True
                 task_state.last_error = f"投屏启动失败，正在自动重连：{exc}"
                 print(f"[scrcpy {session_id}] start failed; auto reconnect attempt={task_state.reconnect_attempts}: {exc}")
+                if task_state.reconnect_attempts > SCRCPY_RECONNECT_MAX_ATTEMPTS:
+                    task_state.running = False
+                    task_state.reconnecting = False
+                    task_state.last_error = f"scrcpy start failed; reconnect limit reached: {exc}"
+                    break
 
             if not task_state.running:
                 break
@@ -348,28 +381,6 @@ async def _scrcpy_supervisor(session_id: str) -> None:
             first_launch = False
     finally:
         task_state.reconnecting = False
-
-
-def _archive_recording(session_id: str, task_state: ScrcpyTaskState, record_path: Path) -> None:
-    save_capture_archive(
-        CaptureArchiveItem(
-            id=f"arch-rec-{session_id}-{record_path.stem}",
-            session_id=session_id,
-            artifact_type="video",
-            source="scrcpy-record",
-            path=task_state.recording_path,
-            content="",
-            metadata={
-                "serial": task_state.serial,
-                "max_size": task_state.max_size,
-                "bit_rate": task_state.bit_rate,
-                "format": "mp4",
-                "audio": "playback",
-                "auto_reconnect": True,
-                "reconnect_attempts": task_state.reconnect_attempts,
-            },
-        )
-    )
 
 
 async def _recover_scrcpy_before_retry(task_state: ScrcpyTaskState, delay_seconds: float) -> None:
@@ -395,6 +406,80 @@ def _adb_exe_for_scrcpy(scrcpy_exe: str) -> str:
     if candidate.exists():
         return str(candidate)
     return "adb"
+
+
+def _adb_exe_for_projection() -> str:
+    scrcpy_exe = _get_scrcpy_exe()
+    if scrcpy_exe:
+        return _adb_exe_for_scrcpy(scrcpy_exe)
+    qtscrcpy_exe = _get_qtscrcpy_exe()
+    if qtscrcpy_exe:
+        candidate = Path(qtscrcpy_exe).with_name("adb.exe" if sys.platform == "win32" else "adb")
+        if candidate.exists():
+            return str(candidate)
+    return "adb"
+
+
+def _parse_adb_devices_output(text: str) -> list[dict[str, str]]:
+    devices: list[dict[str, str]] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.lower().startswith("list of devices"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        devices.append({"serial": parts[0], "state": parts[1], "raw": line})
+    return devices
+
+
+def _has_online_adb_device(devices: list[dict[str, str]], serial: str = "") -> bool:
+    cleaned_serial = serial.strip()
+    if cleaned_serial:
+        return any(item["serial"] == cleaned_serial and item["state"] == "device" for item in devices)
+    return any(item["state"] == "device" for item in devices)
+
+
+def _has_offline_adb_device(devices: list[dict[str, str]], serial: str = "") -> bool:
+    cleaned_serial = serial.strip()
+    if cleaned_serial:
+        return any(item["serial"] == cleaned_serial and item["state"] == "offline" for item in devices)
+    return any(item["state"] == "offline" for item in devices)
+
+
+async def _adb_devices(adb_exe: str) -> list[dict[str, str]]:
+    process = await asyncio.create_subprocess_exec(
+        adb_exe,
+        "devices",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=8.0)
+    except asyncio.TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise RuntimeError("读取 adb devices 超时") from exc
+    if process.returncode != 0:
+        message = (stderr or stdout).decode("utf-8", errors="ignore").strip()
+        raise RuntimeError(message or f"adb devices 失败，退出码：{process.returncode}")
+    return _parse_adb_devices_output(stdout.decode("utf-8", errors="ignore"))
+
+
+async def _ensure_adb_device_online(serial: str = "") -> None:
+    adb_exe = _adb_exe_for_projection()
+    devices = await _adb_devices(adb_exe)
+    if _has_online_adb_device(devices, serial):
+        return
+    if _has_offline_adb_device(devices, serial):
+        await _run_adb_command(adb_exe, serial, ["reconnect", "offline"], timeout=10.0, allow_failure=True)
+        await _run_adb_command(adb_exe, serial, ["reconnect", "device"], timeout=10.0, allow_failure=True)
+        devices = await _adb_devices(adb_exe)
+        if _has_online_adb_device(devices, serial):
+            return
+    if serial.strip():
+        raise RuntimeError(f"ADB 设备未在线：{serial.strip()}，请检查 USB 连接和授权")
+    raise RuntimeError("ADB 设备未在线，请检查 USB 连接和授权")
 
 
 async def _run_adb_command(
@@ -447,11 +532,15 @@ async def start_scrcpy(
     if session_id not in app_state.sessions:
         raise ValueError("直播会话不存在")
 
-    await stop_scrcpy(session_id)
-
     effective_max_size = SCRCPY_MAX_SIZE
     cleaned_serial = serial.strip()
     _ensure_scrcpy_driver_available()
+    await _ensure_adb_device_online(cleaned_serial)
+    conflicts = await detect_external_scrcpy_processes()
+    if conflicts:
+        pids = ", ".join(item["process_id"] for item in conflicts[:3])
+        raise RuntimeError(f"检测到未由本项目管理的 scrcpy 进程，请先关闭后再采集。PID：{pids}")
+    await stop_scrcpy(session_id)
     task_state = ScrcpyTaskState(
         session_id=session_id,
         serial=cleaned_serial,
@@ -481,11 +570,82 @@ async def stop_scrcpy(session_id: str) -> dict[str, Any]:
     return status(session_id)
 
 
+async def stop_all_scrcpy() -> None:
+    for session_id in list(scrcpy_tasks):
+        await stop_scrcpy(session_id)
+
+
+async def cleanup_stale_scrcpy_processes() -> None:
+    if sys.platform != "win32":
+        return
+    script = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.Name -ieq 'scrcpy.exe' "
+        "-and ($_.CommandLine -like '*JLAO Projection*' -or "
+        "$_.CommandLine -like '*JLAO 投屏*' -or "
+        "($_.CommandLine -like '*--window-title*' -and $_.CommandLine -like '*JLAO*')) } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            script,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(process.wait(), timeout=5.0)
+    except Exception:
+        return
+
+
+def _is_project_scrcpy_command_line(command_line: str) -> bool:
+    lowered = (command_line or "").lower()
+    return (
+        "jlao projection" in lowered
+        or "jlao 投屏" in lowered
+        or ("--window-title" in lowered and "jlao" in lowered)
+        or ("--no-video" in lowered and "--record-format" in lowered and "wav" in lowered)
+    )
+
+
+async def detect_external_scrcpy_processes() -> list[dict[str, str]]:
+    if sys.platform != "win32":
+        return []
+    script = (
+        "Get-CimInstance Win32_Process -Filter \"Name='scrcpy.exe'\" | "
+        "ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
+    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
+    except Exception:
+        return []
+    conflicts: list[dict[str, str]] = []
+    for raw_line in stdout.decode("utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        process_id, _, command_line = line.partition("\t")
+        if command_line and not _is_project_scrcpy_command_line(command_line):
+            conflicts.append({"process_id": process_id.strip(), "command_line": command_line.strip()})
+    return conflicts
+
+
 def status(session_id: str) -> dict[str, Any]:
     task_state = scrcpy_tasks.get(session_id)
     if not task_state:
         return {
             "running": False,
+            "state": "stopped",
             "serial": "",
             "last_error": "",
             "width": 0,
@@ -496,8 +656,18 @@ def status(session_id: str) -> dict[str, Any]:
             "last_exit_code": None,
         }
     process_running = bool(task_state.process and task_state.process.returncode is None)
+    running = task_state.running and process_running
+    if running:
+        state = "running"
+    elif task_state.reconnecting or (task_state.running and not task_state.last_error):
+        state = "starting"
+    elif task_state.last_error:
+        state = "error"
+    else:
+        state = "stopped"
     return {
-        "running": task_state.running and process_running,
+        "running": running,
+        "state": state,
         "serial": task_state.serial,
         "last_error": task_state.last_error,
         "width": task_state.width,

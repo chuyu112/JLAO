@@ -217,6 +217,7 @@ class JadeMultimodalServiceTests(unittest.TestCase):
         self.assertEqual(jade_attributes_from_yolo_label("guanyin"), ("", "观音"))
 
     def test_image_analysis_runs_without_configured_yolo_model(self) -> None:
+        import os
         import tempfile
 
         import cv2
@@ -227,7 +228,9 @@ class JadeMultimodalServiceTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
             temp_path = Path(temp_file.name)
 
+        old_yolo_model = os.environ.get("JLAO_YOLO_MODEL")
         try:
+            os.environ["JLAO_YOLO_MODEL"] = str(temp_path.with_suffix(".missing.pt"))
             image = np.full((80, 80, 3), (180, 160, 60), dtype=np.uint8)
             cv2.imwrite(str(temp_path), image)
 
@@ -237,6 +240,10 @@ class JadeMultimodalServiceTests(unittest.TestCase):
             self.assertFalse(result.signals["yolo"]["enabled"])
             self.assertEqual(result.signals["yolo"]["reason"], "model-not-configured")
         finally:
+            if old_yolo_model is None:
+                os.environ.pop("JLAO_YOLO_MODEL", None)
+            else:
+                os.environ["JLAO_YOLO_MODEL"] = old_yolo_model
             temp_path.unlink(missing_ok=True)
 
     def test_image_analysis_estimates_water_from_clear_jade_like_frame(self) -> None:
@@ -645,7 +652,7 @@ class SttWebsocketTests(unittest.TestCase):
 
 
 class ScrcpyCommandTests(unittest.TestCase):
-    def test_projection_scrcpy_uses_playback_audio_not_microphone(self) -> None:
+    def test_projection_scrcpy_is_video_only(self) -> None:
         from unittest.mock import patch
 
         from app.services.scrcpy_service import _build_scrcpy_command
@@ -656,10 +663,78 @@ class ScrcpyCommandTests(unittest.TestCase):
         ):
             launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
 
-        self.assertIn("--audio-source=playback", launch.command)
-        self.assertNotIn("--no-audio", launch.command)
+        self.assertIn("--no-audio", launch.command)
+        self.assertNotIn("--audio-source=playback", launch.command)
         self.assertNotIn("--audio-source=mic", launch.command)
         self.assertNotIn("--audio-source=voice-performance", launch.command)
+
+    def test_projection_scrcpy_does_not_force_window_position_by_default(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from app.services.scrcpy_service import _build_scrcpy_command
+
+        old_values = {name: os.environ.get(name) for name in (
+            "JLAO_SCRCPY_WINDOW_X",
+            "JLAO_SCRCPY_WINDOW_Y",
+            "JLAO_SCRCPY_WINDOW_WIDTH",
+            "JLAO_SCRCPY_WINDOW_HEIGHT",
+        )}
+        try:
+            for name in old_values:
+                os.environ.pop(name, None)
+            with (
+                patch("app.services.scrcpy_service._get_qtscrcpy_exe", return_value=None),
+                patch("app.services.scrcpy_service._get_scrcpy_exe", return_value=r"D:\scrcpy-win64-v4.0\scrcpy.exe"),
+            ):
+                launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertNotIn("--window-x", launch.command)
+        self.assertNotIn("--window-y", launch.command)
+
+    def test_projection_scrcpy_window_position_is_configurable(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from app.services.scrcpy_service import _build_scrcpy_command
+
+        old_values = {name: os.environ.get(name) for name in (
+            "JLAO_SCRCPY_WINDOW_X",
+            "JLAO_SCRCPY_WINDOW_Y",
+            "JLAO_SCRCPY_WINDOW_WIDTH",
+            "JLAO_SCRCPY_WINDOW_HEIGHT",
+        )}
+        try:
+            os.environ["JLAO_SCRCPY_WINDOW_X"] = "120"
+            os.environ["JLAO_SCRCPY_WINDOW_Y"] = "80"
+            os.environ["JLAO_SCRCPY_WINDOW_WIDTH"] = "720"
+            os.environ["JLAO_SCRCPY_WINDOW_HEIGHT"] = "1280"
+            with (
+                patch("app.services.scrcpy_service._get_qtscrcpy_exe", return_value=None),
+                patch("app.services.scrcpy_service._get_scrcpy_exe", return_value=r"D:\scrcpy-win64-v4.0\scrcpy.exe"),
+            ):
+                launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertIn("--window-x", launch.command)
+        self.assertIn("120", launch.command)
+        self.assertIn("--window-y", launch.command)
+        self.assertIn("80", launch.command)
+        self.assertIn("--window-width", launch.command)
+        self.assertIn("720", launch.command)
+        self.assertIn("--window-height", launch.command)
+        self.assertIn("1280", launch.command)
 
     def test_command_line_scrcpy_is_preferred_when_both_drivers_exist(self) -> None:
         from unittest.mock import patch
@@ -678,23 +753,19 @@ class ScrcpyCommandTests(unittest.TestCase):
         self.assertEqual("scrcpy", launch.mode)
         self.assertEqual(scrcpy_exe, launch.command[0])
 
-    def test_command_line_scrcpy_records_screen_video_when_path_is_provided(self) -> None:
-        from pathlib import Path
+    def test_command_line_scrcpy_does_not_record_projection(self) -> None:
         from unittest.mock import patch
 
         from app.services.scrcpy_service import _build_scrcpy_command
 
-        record_path = Path("uploads/recordings/live-001/screen.mp4")
         with (
             patch("app.services.scrcpy_service._get_scrcpy_exe", return_value=r"D:\scrcpy-win64-v4.0\scrcpy.exe"),
             patch("app.services.scrcpy_service._get_qtscrcpy_exe", return_value=None),
         ):
-            launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000, record_path=record_path)
+            launch = _build_scrcpy_command(serial="", max_size=1024, bit_rate=4_000_000)
 
-        self.assertIn("--record", launch.command)
-        self.assertIn(str(record_path), launch.command)
-        self.assertIn("--record-format", launch.command)
-        self.assertIn("mp4", launch.command)
+        self.assertNotIn("--record", launch.command)
+        self.assertNotIn("--record-format", launch.command)
 
     def test_user_selected_qtscrcpy_directory_resolves_to_executable(self) -> None:
         import tempfile
@@ -749,9 +820,47 @@ class ScrcpyCommandTests(unittest.TestCase):
         self.assertIn(str(scrcpy_exe), candidates["scrcpy"])
         self.assertIn(str(qtscrcpy_exe), candidates["qtscrcpy"])
 
+    def test_projection_adb_devices_output_is_parsed(self) -> None:
+        from app.services.scrcpy_service import _parse_adb_devices_output
+
+        devices = _parse_adb_devices_output(
+            "List of devices attached\n"
+            "abc123\tdevice\n"
+            "xyz987\toffline\n"
+        )
+
+        self.assertEqual(devices[0]["serial"], "abc123")
+        self.assertEqual(devices[0]["state"], "device")
+        self.assertEqual(devices[1]["state"], "offline")
+
+    def test_projection_start_requires_online_adb_device(self) -> None:
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from app.services.scrcpy_service import _ensure_adb_device_online
+
+        with (
+            patch("app.services.scrcpy_service._adb_exe_for_projection", return_value="adb"),
+            patch("app.services.scrcpy_service._adb_devices", new=AsyncMock(return_value=[])),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "ADB 设备未在线"):
+                asyncio.run(_ensure_adb_device_online(""))
+
+    def test_scrcpy_status_includes_resource_state(self) -> None:
+        from app.services.scrcpy_service import status
+
+        self.assertEqual(status("missing-session")["state"], "stopped")
+
+    def test_project_scrcpy_process_markers_are_distinguished_from_external_windows(self) -> None:
+        from app.services.scrcpy_service import _is_project_scrcpy_command_line
+
+        self.assertTrue(_is_project_scrcpy_command_line('scrcpy.exe --window-title "JLAO Projection - default-device"'))
+        self.assertTrue(_is_project_scrcpy_command_line('scrcpy.exe --no-video --record-format wav --record stream.wav'))
+        self.assertFalse(_is_project_scrcpy_command_line('scrcpy.exe --max-fps 30'))
+
 
 class NativeSttServiceTests(unittest.TestCase):
-    def test_audio_record_command_uses_voice_performance_source(self) -> None:
+    def test_audio_record_command_uses_playback_source(self) -> None:
         from pathlib import Path
 
         from app.services.native_stt_service import _build_audio_record_command
@@ -763,13 +872,31 @@ class NativeSttServiceTests(unittest.TestCase):
             chunk_seconds=3,
         )
 
-        self.assertIn("--audio-source=voice-performance", command)
+        self.assertIn("--audio-source=playback", command)
         self.assertIn("--no-audio-playback", command)
         self.assertNotIn("--time-limit", command)
         self.assertNotIn("--audio-dup", command)
         self.assertNotIn("--audio-source=mic", command)
         self.assertNotIn("--audio-source=output", command)
-        self.assertNotIn("--audio-source=playback", command)
+        self.assertNotIn("--audio-source=voice-performance", command)
+
+    def test_native_stt_status_includes_resource_state(self) -> None:
+        from app.services.native_stt_service import status
+
+        self.assertEqual(status("missing-session")["state"], "stopped")
+
+    def test_adb_devices_output_is_parsed(self) -> None:
+        from app.services.native_audio_service import _parse_adb_devices_output
+
+        devices = _parse_adb_devices_output(
+            "List of devices attached\n"
+            "abc123\tdevice\n"
+            "xyz987\toffline\n"
+        )
+
+        self.assertEqual(devices[0]["serial"], "abc123")
+        self.assertEqual(devices[0]["state"], "device")
+        self.assertEqual(devices[1]["state"], "offline")
 
     def test_scrcpy_device_disconnected_error_is_recoverable(self) -> None:
         from app.services.native_stt_service import _is_device_disconnected_error, _is_scrcpy_recoverable_error
@@ -851,7 +978,254 @@ class NativeSttServiceTests(unittest.TestCase):
             Path(temp_path).unlink(missing_ok=True)
 
 
+class RuntimeSettingsTests(unittest.TestCase):
+    def test_stt_runtime_device_accepts_gpu_alias_and_clears_model_cache(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from app.services import runtime_settings_service
+
+        old_path = runtime_settings_service.RUNTIME_SETTINGS_PATH
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                runtime_settings_service.RUNTIME_SETTINGS_PATH = Path(temp_dir) / "runtime-settings.json"
+
+                with (
+                    patch.object(runtime_settings_service, "_cuda_available", return_value=True),
+                    patch.object(runtime_settings_service, "_clear_local_stt_model_cache") as clear_model_cache,
+                ):
+                    info = runtime_settings_service.update_stt_runtime_settings(local_stt_device="gpu")
+
+                self.assertEqual(info["local_stt_device"], "cuda")
+                self.assertEqual(runtime_settings_service.get_local_stt_device(), "cuda")
+                clear_model_cache.assert_called_once()
+        finally:
+            runtime_settings_service.RUNTIME_SETTINGS_PATH = old_path
+
+
+class CaptureResourceServiceTests(unittest.TestCase):
+    def test_browser_video_requires_projection(self) -> None:
+        from unittest.mock import patch
+
+        from app.services import capture_resource_service
+
+        session_id = "capture-video-requires-projection"
+        capture_resource_service.browser_video_states.pop(session_id, None)
+        try:
+            with patch("app.services.scrcpy_service.status", return_value={"running": False}):
+                with self.assertRaisesRegex(RuntimeError, "请先启动采集投屏"):
+                    capture_resource_service.mark_browser_video(session_id, True)
+        finally:
+            capture_resource_service.browser_video_states.pop(session_id, None)
+
+    def test_ocr_requires_browser_video(self) -> None:
+        from app.services import capture_resource_service
+
+        session_id = "capture-ocr-requires-video"
+        capture_resource_service.browser_video_states.pop(session_id, None)
+        capture_resource_service.ocr_capture_states.pop(session_id, None)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "请先接入视频流"):
+                capture_resource_service.mark_ocr_capture(session_id, True)
+        finally:
+            capture_resource_service.browser_video_states.pop(session_id, None)
+            capture_resource_service.ocr_capture_states.pop(session_id, None)
+
+    def test_recording_requires_browser_video(self) -> None:
+        import asyncio
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        import sys
+        from unittest.mock import patch
+
+        from app.schemas import LiveSession
+        from app.services import capture_resource_service
+        from app.state import app_state
+
+        session_id = "recording-requires-video"
+        previous = app_state.sessions.get(session_id)
+        now = datetime.now(timezone.utc)
+        app_state.sessions[session_id] = LiveSession(id=session_id, title="recording test", created_at=now, updated_at=now)
+        capture_resource_service.browser_video_states.pop(session_id, None)
+        try:
+            with (
+                patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: "ffmpeg")}),
+                patch("app.services.native_audio_service.is_running", return_value=True),
+            ):
+                from app.services import recording_service
+
+                with self.assertRaisesRegex(RuntimeError, "请先接入视频流"):
+                    asyncio.run(recording_service.start_recording(session_id))
+        finally:
+            capture_resource_service.browser_video_states.pop(session_id, None)
+            recording_service.recording_tasks.pop(session_id, None)
+            if previous is None:
+                app_state.sessions.pop(session_id, None)
+            else:
+                app_state.sessions[session_id] = previous
+
+    def test_reset_marks_live_session_stopped(self) -> None:
+        import asyncio
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock, patch
+
+        from app.schemas import LiveSession, SessionStatus
+        from app.services import capture_resource_service
+        from app.state import app_state
+
+        session_id = "capture-reset-session"
+        now = datetime.now(timezone.utc)
+        previous = app_state.sessions.get(session_id)
+        app_state.sessions[session_id] = LiveSession(
+            id=session_id,
+            title="reset test",
+            status=SessionStatus.running,
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            with (
+                patch("app.services.capture_resource_service.save_live_session"),
+                patch.object(capture_resource_service.manager, "broadcast", new=AsyncMock()),
+            ):
+                asyncio.run(capture_resource_service._stop_live_session(session_id))
+
+            self.assertEqual(app_state.sessions[session_id].status, SessionStatus.stopped)
+            self.assertIsNotNone(app_state.sessions[session_id].end_time)
+        finally:
+            if previous is None:
+                app_state.sessions.pop(session_id, None)
+            else:
+                app_state.sessions[session_id] = previous
+
+    def test_hard_reset_returns_adb_status(self) -> None:
+        import asyncio
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock, patch
+
+        from app.schemas import LiveSession
+        from app.services import capture_resource_service
+        from app.state import app_state
+
+        session_id = "hard-reset-adb-status"
+        previous = app_state.sessions.get(session_id)
+        now = datetime.now(timezone.utc)
+        app_state.sessions[session_id] = LiveSession(id=session_id, title="hard reset", created_at=now, updated_at=now)
+        try:
+            with (
+                patch("app.services.capture_resource_service.save_live_session"),
+                patch.object(capture_resource_service.manager, "broadcast", new=AsyncMock()),
+                patch("app.services.scrcpy_service.stop_scrcpy", new=AsyncMock(return_value={})),
+                patch("app.services.scrcpy_service.cleanup_stale_scrcpy_processes", new=AsyncMock()),
+                patch("app.services.native_stt_service.stop_native_stt", new=AsyncMock(return_value={})),
+                patch("app.services.phone_capture_service.stop_capture", new=AsyncMock(return_value={})),
+                patch("app.services.native_audio_service.stop_native_audio", new=AsyncMock(return_value={})),
+                patch("app.services.native_audio_service.cleanup_stale_native_audio_processes", new=AsyncMock()),
+                patch("app.services.native_audio_service.recover_adb_once", new=AsyncMock()),
+                patch(
+                    "app.services.native_audio_service.get_adb_devices_status",
+                    new=AsyncMock(return_value={"status": "online", "online_count": 1, "offline_count": 0}),
+                ),
+            ):
+                result = asyncio.run(capture_resource_service.hard_reset(session_id))
+
+            self.assertEqual(result["reset"], "hard")
+            self.assertEqual(result["adb_status"]["status"], "online")
+            self.assertEqual(result["adb_status"]["online_count"], 1)
+        finally:
+            if previous is None:
+                app_state.sessions.pop(session_id, None)
+            else:
+                app_state.sessions[session_id] = previous
+
+
 class PhoneCaptureServiceTests(unittest.TestCase):
+    def test_capture_card_device_result_prioritizes_ugreen_video_and_audio(self) -> None:
+        from app.services.capture_card_service import build_device_result
+
+        result = build_device_result(
+            [
+                {
+                    "pnp_class": "AudioEndpoint",
+                    "name": "MX3228 (NVIDIA High Definition Audio)",
+                    "status": "OK",
+                    "device_id": "SWD\\MMDEVAPI\\NVIDIA",
+                    "manufacturer": "Microsoft",
+                    "service": "",
+                },
+                {
+                    "pnp_class": "Camera",
+                    "name": "UGREEN 95348",
+                    "status": "OK",
+                    "device_id": "USB\\VID_2B89&PID_5348&MI_00",
+                    "manufacturer": "UGREEN",
+                    "service": "usbvideo",
+                },
+                {
+                    "pnp_class": "AudioEndpoint",
+                    "name": "数字音频接口 (UGREEN 95348)",
+                    "status": "OK",
+                    "device_id": "SWD\\MMDEVAPI\\UGREEN",
+                    "manufacturer": "Microsoft",
+                    "service": "",
+                },
+            ],
+            platform_name="win32",
+            errors=[],
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["video_devices"][0]["name"], "UGREEN 95348")
+        self.assertTrue(result["video_devices"][0]["is_capture_candidate"])
+        self.assertEqual(result["audio_devices"][0]["name"], "数字音频接口 (UGREEN 95348)")
+        self.assertTrue(result["audio_devices"][0]["is_capture_candidate"])
+
+    def test_capture_card_parse_pnputil_devices(self) -> None:
+        from app.services.capture_card_service import parse_pnputil_devices
+
+        devices = parse_pnputil_devices(
+            "Microsoft PnP Utility\n\n"
+            "Instance ID:                USB\\VID_2B89&PID_5348&MI_00\\7&2dbee40a&0&0000\n"
+            "Device Description:         UGREEN 95348\n"
+            "Class Name:                 Camera\n"
+            "Manufacturer Name:          Microsoft\n"
+            "Status:                     Started\n"
+            "Driver Name:                usbvideo.inf\n\n"
+            "Instance ID:                SWD\\MMDEVAPI\\UGREEN\n"
+            "Device Description:         数字音频接口 (UGREEN 95348)\n"
+            "Class Name:                 AudioEndpoint\n"
+            "Manufacturer Name:          Microsoft\n"
+            "Status:                     Started\n"
+            "Driver Name:                audioendpoint.inf\n"
+        )
+
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(devices[0]["name"], "UGREEN 95348")
+        self.assertEqual(devices[0]["pnp_class"], "Camera")
+        self.assertEqual(devices[1]["name"], "数字音频接口 (UGREEN 95348)")
+        self.assertEqual(devices[1]["pnp_class"], "AudioEndpoint")
+
+    def test_capture_card_video_index_uses_selected_device_order(self) -> None:
+        from app.services.capture_card_service import _resolve_video_index
+
+        devices = [
+            {"id": "camera-built-in", "device_id": "camera-built-in", "is_capture_candidate": False},
+            {"id": "ugreen-capture", "device_id": "ugreen-capture", "is_capture_candidate": True},
+        ]
+
+        self.assertEqual(_resolve_video_index(devices, device_id="ugreen-capture"), 1)
+        self.assertEqual(_resolve_video_index(devices, device_id="missing"), 1)
+        self.assertEqual(_resolve_video_index(devices, video_index=3), 3)
+
+    def test_capture_card_stopped_status_shape(self) -> None:
+        from app.services.capture_card_service import status
+
+        info = status("missing-capture-card-session")
+
+        self.assertFalse(info["running"])
+        self.assertEqual(info["state"], "stopped")
+        self.assertEqual(info["frame_count"], 0)
+
     def test_windows_adb_lookup_includes_scrcpy_v4_bundle(self) -> None:
         from unittest.mock import patch
 
@@ -972,12 +1346,14 @@ class LiveCommentOcrTests(unittest.TestCase):
             now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
         )
 
-        self.assertEqual([event.customer_nickname for event in events], ["莲**", "K**"])
+        self.assertEqual([event.customer_nickname for event in events], ["莲**", "", "K**", ""])
         self.assertEqual(events[0].customer_level, "[粉丝]")
         self.assertEqual(events[0].event_type, "弹幕")
         self.assertEqual(events[0].content, "林老师的作品不是都被博物馆收起来了吗？")
-        self.assertEqual(events[1].event_type, "关注")
-        self.assertNotIn("江苏健康广播", [event.content for event in events])
+        self.assertEqual(events[1].event_type, "弹幕")
+        self.assertEqual(events[1].content, "江苏健康广播 FM100.5")
+        self.assertEqual(events[2].event_type, "关注")
+        self.assertEqual(events[3].content, "聊一聊")
 
     def test_spaced_ocr_lines_are_joined_into_comments(self) -> None:
         from datetime import datetime, timezone
@@ -1002,26 +1378,66 @@ class LiveCommentOcrTests(unittest.TestCase):
         self.assertEqual(events[1].event_type, "关注")
         self.assertEqual(events[2].event_type, "弹幕")
         self.assertEqual(events[2].content, "太想看看了")
-        self.assertEqual(len(events), 3)
+        self.assertEqual(events[3].event_type, "弹幕")
+        self.assertEqual(events[3].content, "中国工艺美术大师，国家高级工")
+        self.assertEqual(len(events), 4)
 
-    def test_content_only_ocr_lines_are_buffered_when_nickname_is_missed(self) -> None:
+    def test_content_only_ocr_lines_are_published_when_nickname_is_missed(self) -> None:
         from datetime import datetime, timezone
 
         from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
 
+        lines = [
+            "精品",
+            "很难播 0@都是眼高手低管管",
+            "我这个月刚去 还在学习 都是接播",
+            "翡翠特色雕刻件专场",
+        ]
         events = events_from_ocr_lines(
             session_id="live-001",
-            lines=[
-                "精品",
-                "很难播 0@都是眼高手低管管",
-                "我这个月刚去 还在学习 都是接播",
-                "翡翠特色雕刻件专场",
-            ],
+            lines=lines,
             now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
         )
 
-        self.assertEqual([event.customer_nickname for event in events], ["", ""])
-        self.assertEqual(dedupe_live_comment_events("live-content-only", events), [])
+        self.assertEqual([event.customer_nickname for event in events], ["", "", "", ""])
+        self.assertEqual(
+            [event.content for event in dedupe_live_comment_events("live-content-only", events)],
+            ["精品", "很难播 @都是眼高手低管管", "我这个月刚去还在学习都是接播", "翡翠特色雕刻件专场"],
+        )
+
+    def test_interaction_events_are_published_even_when_short(self) -> None:
+        from datetime import datetime, timezone
+
+        from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
+
+        session_id = "live-short-interactions"
+        events = events_from_ocr_lines(
+            session_id=session_id,
+            lines=[
+                "张三下单",
+                "李**点赞",
+                "王**关注了",
+                "宋**赞了直播",
+                "花下单了闪购商品",
+                "关注了主播",
+                "用户：帮我点赞",
+            ],
+            now=datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc),
+        )
+        published = dedupe_live_comment_events(session_id, events)
+
+        self.assertEqual(
+            [(event.customer_nickname, event.event_type, event.content) for event in published],
+            [
+                ("张三", "下单", "下单"),
+                ("李**", "点赞", "点赞"),
+                ("王**", "关注", "关注了"),
+                ("宋**", "点赞", "赞了直播"),
+                ("花", "下单", "下单了闪购商品"),
+                ("", "关注", "关注了主播"),
+                ("用户", "弹幕", "帮我点赞"),
+            ],
+        )
 
     def test_content_only_question_comments_are_published_without_fake_viewer_name(self) -> None:
         from datetime import datetime, timezone
@@ -1041,8 +1457,8 @@ class LiveCommentOcrTests(unittest.TestCase):
 
         published = dedupe_live_comment_events(session_id, events)
 
-        self.assertEqual([event.content for event in published], ["扣头多大？", "有没有0.5？"])
-        self.assertEqual([event.customer_nickname for event in published], ["", ""])
+        self.assertEqual([event.content for event in published], ["扣头多大？", "有没有0.5？", "特色翡翠直播"])
+        self.assertEqual([event.customer_nickname for event in published], ["", "", ""])
 
     def test_later_badged_masked_comment_updates_pending_content_only_comment(self) -> None:
         from datetime import datetime, timedelta, timezone
@@ -1141,7 +1557,9 @@ class LiveCommentOcrTests(unittest.TestCase):
         try:
             first = events_from_ocr_lines(session_id, ["老板挺好的已经干了五六年了"], now=now)
             published = dedupe_live_comment_events(session_id, first)
-            self.assertEqual(published, [])
+            self.assertEqual(len(published), 1)
+            self.assertEqual(published[0].customer_nickname, "")
+            app_state.live_comments[session_id] = published
 
             clearer = events_from_ocr_lines(session_id, ["亮***：老板挺好的已经干了五六年了"], now=now)
             updated = dedupe_live_comment_events(session_id, clearer)
@@ -1152,20 +1570,18 @@ class LiveCommentOcrTests(unittest.TestCase):
         finally:
             app_state.live_comments.pop(session_id, None)
 
-    def test_numeric_only_ocr_nickname_is_buffered_until_clearer(self) -> None:
+    def test_numeric_only_ocr_nickname_is_published(self) -> None:
         from datetime import datetime, timezone
 
         from app.services.live_comment_service import dedupe_live_comment_events, events_from_ocr_lines
 
         now = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
         noisy = events_from_ocr_lines("live-noisy-nickname", ["4：封底就垫色了"], now=now)
-        clearer = events_from_ocr_lines("live-noisy-nickname", ["用***：封底就垫色了"], now=now)
-
-        self.assertEqual(dedupe_live_comment_events("live-noisy-nickname", noisy), [])
-        published = dedupe_live_comment_events("live-noisy-nickname", clearer)
+        published = dedupe_live_comment_events("live-noisy-nickname", noisy)
 
         self.assertEqual(len(published), 1)
-        self.assertEqual(published[0].customer_nickname, "用**")
+        self.assertEqual(published[0].customer_nickname, "4")
+        self.assertEqual(published[0].content, "封底就垫色了")
 
     def test_ocr_noise_is_removed_from_masked_nickname_prefixes(self) -> None:
         from datetime import datetime, timezone
@@ -1263,5 +1679,3 @@ class LiveCommentOcrTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
