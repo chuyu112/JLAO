@@ -79,7 +79,7 @@
           <header class="panel-header">
             <div>
               <div class="panel-title">样图识别</div>
-              <div class="transcript-meta">上传一张翡翠图，可附主播讲解，综合识别颜色 / 种水 / 样式 / 题材</div>
+              <div class="transcript-meta">上传一张翡翠图，可附主播讲解，综合识别颜色 / 种水 / 款式 / 题材</div>
             </div>
           </header>
 
@@ -122,7 +122,7 @@
             <div class="feedback-grid">
               <n-auto-complete v-model:value="feedbackDraft.color" :options="taxonomyOptionsFor('color')" placeholder="校正颜色" />
               <n-auto-complete v-model:value="feedbackDraft.water" :options="taxonomyOptionsFor('water')" placeholder="校正种水" />
-              <n-auto-complete v-model:value="feedbackDraft.style" :options="taxonomyOptionsFor('style')" placeholder="校正样式" />
+              <n-auto-complete v-model:value="feedbackDraft.style" :options="taxonomyOptionsFor('style')" placeholder="校正款式" />
               <n-auto-complete v-model:value="feedbackDraft.theme" :options="taxonomyOptionsFor('theme')" placeholder="校正题材" />
             </div>
             <n-button type="success" secondary :loading="feedbackSaving" @click="submitFeedback">
@@ -250,7 +250,7 @@
           <header class="panel-header">
             <div>
               <div class="panel-title">人工标注任务</div>
-              <div class="transcript-meta">需要人工确认样式 / 题材 / 主体框的样本</div>
+              <div class="transcript-meta">需要人工确认款式 / 题材 / 主体框的样本</div>
               <div v-if="annotationStatsText" class="transcript-meta">{{ annotationStatsText }}</div>
             </div>
             <n-button secondary type="info" :loading="annotationLoading" @click="loadAnnotationTasks">刷新</n-button>
@@ -261,12 +261,12 @@
               <img :src="resolveAssetUrl(task.image)" alt="待标注图" />
               <div>
                 <strong>{{ taskClassNamesText(task) }}</strong>
-                <small>{{ task.corrected.style || '样式未填' }} · {{ task.corrected.theme || '题材未填' }}</small>
+                <small>{{ task.corrected.style || '款式未填' }} · {{ task.corrected.theme || '题材未填' }}</small>
                 <small>{{ task.text || '无讲解文本' }}</small>
                 <div class="task-correction-grid">
                   <n-auto-complete size="small" placeholder="颜色" :options="taxonomyOptionsFor('color')" :value="taskDraft(task).color" @update:value="value => updateTaskDraft(task, 'color', value)" />
                   <n-auto-complete size="small" placeholder="种水" :options="taxonomyOptionsFor('water')" :value="taskDraft(task).water" @update:value="value => updateTaskDraft(task, 'water', value)" />
-                  <n-auto-complete size="small" placeholder="样式" :options="taxonomyOptionsFor('style')" :value="taskDraft(task).style" @update:value="value => updateTaskDraft(task, 'style', value)" />
+                  <n-auto-complete size="small" placeholder="款式" :options="taxonomyOptionsFor('style')" :value="taskDraft(task).style" @update:value="value => updateTaskDraft(task, 'style', value)" />
                   <n-auto-complete size="small" placeholder="题材" :options="taxonomyOptionsFor('theme')" :value="taskDraft(task).theme" @update:value="value => updateTaskDraft(task, 'theme', value)" />
                 </div>
                 <div class="tag-row">
@@ -380,7 +380,7 @@
               <div class="product-correction-grid">
                 <n-auto-complete size="small" placeholder="颜色" :options="taxonomyOptionsFor('color')" :value="productDraft(product).color" @update:value="value => updateProductDraft(product, 'color', value)" />
                 <n-auto-complete size="small" placeholder="种水" :options="taxonomyOptionsFor('water')" :value="productDraft(product).water" @update:value="value => updateProductDraft(product, 'water', value)" />
-                <n-auto-complete size="small" placeholder="样式" :options="taxonomyOptionsFor('style')" :value="productDraft(product).style" @update:value="value => updateProductDraft(product, 'style', value)" />
+                <n-auto-complete size="small" placeholder="款式" :options="taxonomyOptionsFor('style')" :value="productDraft(product).style" @update:value="value => updateProductDraft(product, 'style', value)" />
                 <n-auto-complete size="small" placeholder="题材" :options="taxonomyOptionsFor('theme')" :value="productDraft(product).theme" @update:value="value => updateProductDraft(product, 'theme', value)" />
               </div>
               <n-button class="product-correction-button" size="tiny" secondary type="success" :loading="productCorrectionId === product.id" @click="submitProductCorrection(product)">
@@ -490,7 +490,7 @@ const productCorrectionId = ref('')
 const PRODUCT_ATTRIBUTE_LABELS: Record<JadeAttributeKey, string> = {
   color: '颜色',
   water: '种水',
-  style: '样式',
+  style: '款式',
   theme: '题材',
 }
 const YOLO_CLASS_LABELS: Record<string, string> = {
@@ -499,7 +499,7 @@ const YOLO_CLASS_LABELS: Record<string, string> = {
   jade_cabochon: '蛋面',
   jade_pendant: '吊坠',
   jade_ring: '戒指',
-  jade_plaque: '挂件',
+  jade_plaque: '吊坠',
   pingan_kou: '平安扣',
   guanyin: '观音',
   buddha: '佛公',
@@ -582,7 +582,7 @@ const sampleAttributes = computed(() => {
   return [
     { key: 'color', label: '颜色', value: attrs?.color || '', ...sourceBadge(sources.color) },
     { key: 'water', label: '种水', value: attrs?.water || '', ...sourceBadge(sources.water) },
-    { key: 'style', label: '样式', value: attrs?.style || '', ...sourceBadge(sources.style) },
+    { key: 'style', label: '款式', value: attrs?.style || '', ...sourceBadge(sources.style) },
     { key: 'theme', label: '题材', value: attrs?.theme || '', ...sourceBadge(sources.theme) },
   ]
 })
@@ -628,7 +628,7 @@ const opencvCandidateItems = computed(() => {
   const labels: Record<string, string> = {
     color: '颜色',
     water: '种水',
-    style: '样式',
+    style: '款式',
   }
   return Object.entries(labels)
     .map(([key, label]) => ({ key, label, value: String(candidates[key] || '') }))
@@ -700,7 +700,7 @@ const evaluationMetricItems = computed(() => {
   const labels: Record<string, string> = {
     color: '颜色',
     water: '种水',
-    style: '样式',
+    style: '款式',
     theme: '题材',
   }
   return Object.entries(metrics).map(([key, value]) => ({
@@ -722,7 +722,7 @@ const evaluationMissItems = computed(() => {
   const labels: Record<string, string> = {
     color: '颜色',
     water: '种水',
-    style: '样式',
+    style: '款式',
     theme: '题材',
   }
   return Object.entries(misses).flatMap(([attribute, rows]) =>
@@ -781,8 +781,8 @@ function taxonomyOptionsFor(key: JadeAttributeKey) {
     : key === 'water'
       ? ['玻璃种', '高冰', '冰种', '冰胶', '起冰', '冰糯', '糯冰', '起胶', '糯化', '细糯', '糯种', '豆种']
       : key === 'style'
-        ? ['手镯', '珠串', '蛋面', '戒面', '戒指', '挂件', '吊坠', '平安扣', '摆件', '把件', '耳饰']
-        : ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜', '福豆']
+        ? ['手镯', '珠串', '珠链', '蛋面', '戒指', '吊坠', '耳饰', '摆件']
+        : ['观音', '佛公', '平安扣', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆']
   return ((values?.length ? values : fallback) || []).map(value => ({ label: value, value }))
 }
 
@@ -1757,4 +1757,3 @@ h1 {
   }
 }
 </style>
-

@@ -1,6 +1,6 @@
 ﻿<template>
   <main class="page jade-recognition-page">
-    <app-top-nav title="翡翠多模态识别" subtitle="图像 + 主播讲解文本 · 颜色 / 种水 / 样式 / 题材" />
+    <app-top-nav title="翡翠多模态识别" subtitle="图像 + 主播讲解文本 · 颜色 / 种水 / 款式 / 题材" />
 
     <section class="recognition-shell">
       <n-card class="control-card" title="批量识别">
@@ -151,7 +151,7 @@
                   <small>{{ attrSource(item, 'water') }}</small>
                 </div>
                 <div>
-                  <dt>样式</dt>
+                  <dt>款式</dt>
                   <dd>{{ item.attributes.style || '未识别' }}</dd>
                   <small>{{ attrSource(item, 'style') }}</small>
                 </div>
@@ -230,7 +230,7 @@
                     filterable
                     tag
                     clearable
-                    placeholder="样式"
+                    placeholder="款式"
                     :options="taxonomySelectOptions.styles"
                   />
                   <n-select
@@ -329,8 +329,8 @@ const taxonomy = ref<JadeTaxonomyOptions>({
   status: 'local',
   colors: ['帝王绿', '阳绿', '辣绿', '苹果绿', '豆绿', '绿色', '蓝水', '晴水', '油青', '紫罗兰', '春带彩', '白冰', '无色', '白底青', '飘花', '黄翡', '冰黄', '洒金', '墨翠', '红翡', '多彩'],
   waters: ['玻璃种', '高冰', '冰种', '冰胶', '起冰', '冰糯', '糯冰', '起胶', '糯化', '细糯', '糯种', '豆种'],
-  styles: ['手镯', '珠串', '蛋面', '戒面', '戒指', '挂件', '吊坠', '平安扣', '摆件', '把件', '耳饰'],
-  themes: ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜', '福豆'],
+  styles: ['手镯', '珠串', '珠链', '蛋面', '戒指', '吊坠', '耳饰', '摆件'],
+  themes: ['观音', '佛公', '平安扣', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆'],
 })
 
 const runtime = computed(() => result.value?.runtime || modelStatus.value || null)
@@ -339,7 +339,7 @@ const modelWarning = computed(() => {
   const status = modelStatus.value
   if (!status?.readiness) return ''
   if (!status.readiness.has_jade_yolo_model && status.readiness.uses_pretrained_yolo_fallback) {
-    return '当前未检测到翡翠专用 YOLO 模型，图像样式/题材识别会使用通用模型和规则兜底；建议积累校正样本后训练。'
+    return '当前未检测到翡翠专用 YOLO 模型，图像款式/题材识别会使用通用模型和规则兜底；建议积累校正样本后训练。'
   }
   if (!status.readiness.has_vlm && !status.readiness.has_feedback_learning) {
     return '当前没有 VLM 或反馈学习增强，复杂题材和弱图像信号需要更多人工复核。'
@@ -583,7 +583,7 @@ function buildProductPayload(index: number, item: JadeBatchAnalysis['items'][num
     selling_points: [
       attrs.color ? `颜色：${attrs.color}` : '',
       attrs.water ? `种水：${attrs.water}` : '',
-      attrs.style ? `样式：${attrs.style}` : '',
+      attrs.style ? `款式：${attrs.style}` : '',
       attrs.theme ? `题材：${attrs.theme}` : '',
     ].filter(Boolean),
     faq: [],

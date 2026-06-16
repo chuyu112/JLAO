@@ -16,7 +16,7 @@ def test_label_distribution_accepts_complete_labeled_manifest():
     module = _load_distribution_module()
     records = [
         {"color": "阳绿", "water": "冰种", "style": "吊坠", "theme": "观音"},
-        {"color": "蓝水", "water": "高冰", "style": "牌子", "theme": "龙牌"},
+        {"color": "蓝水", "water": "高冰", "style": "吊坠", "theme": "龙牌"},
     ]
 
     summary = module.inspect_distribution(records, min_labeled=2, min_distinct_per_attribute=2)

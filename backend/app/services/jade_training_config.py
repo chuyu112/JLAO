@@ -24,16 +24,18 @@ JADE_YOLO_CLASS_NAMES = [
     "dragon_plaque",
     "fu_gua",
     "fu_dou",
+    "jade_necklace",
+    "jade_earring",
 ]
 
 JADE_YOLO_CLASS_DESCRIPTIONS = {
     "jade_bangle": "手镯 / 镯子 / 圆条 / 正圈 / 贵妃镯",
-    "jade_beads": "珠串 / 手串 / 珠链 / 项链",
+    "jade_beads": "珠串 / 手串 / 佛珠",
     "jade_cabochon": "蛋面 / 戒面 / 鸽子蛋 / 裸石",
     "jade_pendant": "吊坠 / 挂件 / 坠子",
     "jade_ring": "戒指 / 戒托 / 戒圈",
-    "jade_plaque": "牌子 / 无事牌 / 山水牌",
-    "pingan_kou": "平安扣 / 怀古 / 扣子",
+    "jade_plaque": "牌子 / 无事牌 / 山水牌（旧类，标准款式归吊坠）",
+    "pingan_kou": "平安扣 / 怀古 / 扣子题材",
     "guanyin": "观音题材",
     "buddha": "佛公 / 弥勒佛题材",
     "ruyi": "如意题材",
@@ -46,7 +48,11 @@ JADE_YOLO_CLASS_DESCRIPTIONS = {
     "dragon_plaque": "龙牌 / 龙纹 / 生肖龙题材",
     "fu_gua": "福瓜题材",
     "fu_dou": "福豆 / 四季豆题材",
+    "jade_necklace": "珠链 / 项链",
+    "jade_earring": "耳饰 / 耳环 / 耳坠 / 耳钉",
 }
+
+
 def build_jade_dataset_yaml(dataset_root: str | Path = "data/jade_yolo") -> str:
     root = Path(dataset_root).as_posix()
     names = "\n".join(f"  {index}: {name}" for index, name in enumerate(JADE_YOLO_CLASS_NAMES))

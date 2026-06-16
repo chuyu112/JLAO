@@ -43,10 +43,10 @@ def test_source_agreement_reads_nested_analysis_and_source_list():
             "analysis": {
                 "color": "蓝水",
                 "water": "高冰",
-                "style": "牌子",
+                "style": "吊坠",
                 "theme": "龙牌",
                 "signals": [
-                    {"source": "yolo", "style": "牌子", "theme": "龙牌"},
+                    {"source": "yolo", "style": "吊坠", "theme": "龙牌"},
                     {"source": "text", "color": "蓝水", "water": "冰种"},
                 ],
             }

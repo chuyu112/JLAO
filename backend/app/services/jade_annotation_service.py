@@ -29,6 +29,7 @@ DEFAULT_EXPORT_ZIP = WORKSPACE_DIR / "uploads" / "jade-annotation-export.zip"
 DEFAULT_IMPORT_DIR = WORKSPACE_DIR / "data" / "jade_annotation_import"
 DEFAULT_DATASET_ROOT = WORKSPACE_DIR / "data" / "jade_yolo"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+ANNOTATION_ATTRIBUTE_KEYS = ["color", "water", "style", "theme", "craft"]
 
 
 def get_jade_annotation_tasks(
@@ -79,6 +80,7 @@ def get_jade_annotation_tasks(
                     "water": str(corrected.get("water") or ""),
                     "style": str(corrected.get("style") or ""),
                     "theme": str(corrected.get("theme") or ""),
+                    "craft": str(corrected.get("craft") or ""),
                 },
                 "classes": class_names,
                 "needs_manual_class": not bool(class_names),
@@ -181,7 +183,7 @@ def apply_human_review_sources(record: dict[str, Any], corrected: dict[str, Any]
     sources = record.get("attribute_sources") if isinstance(record.get("attribute_sources"), dict) else {}
     updated_sources = dict(sources)
     previous = record.get("predicted") if isinstance(record.get("predicted"), dict) else {}
-    for key in ["color", "water", "style", "theme"]:
+    for key in ANNOTATION_ATTRIBUTE_KEYS:
         value = str((corrected or {}).get(key) or "").strip()
         if not value:
             continue
@@ -196,8 +198,32 @@ def apply_human_review_sources(record: dict[str, Any], corrected: dict[str, Any]
 
 def class_attributes_from_yolo_classes(class_names: list[str]) -> dict[str, str]:
     updates: dict[str, str] = {}
-    style_by_class = {class_name: style for style, class_name in STYLE_TO_CLASS.items()}
-    theme_by_class = {class_name: theme for theme, class_name in THEME_TO_CLASS.items()}
+    style_by_class = {
+        "jade_bangle": "手镯",
+        "jade_beads": "珠串",
+        "jade_necklace": "珠链",
+        "jade_cabochon": "蛋面",
+        "jade_ring": "戒指",
+        "jade_pendant": "吊坠",
+        "jade_plaque": "吊坠",
+        "pingan_kou": "吊坠",
+        "jade_ornament": "摆件",
+        "jade_earring": "耳饰",
+    }
+    theme_by_class = {
+        "pingan_kou": "平安扣",
+        "guanyin": "观音",
+        "buddha": "佛公",
+        "ruyi": "如意",
+        "leaf": "叶子",
+        "landscape": "山水",
+        "pixiu": "貔貅",
+        "gourd": "葫芦",
+        "caishen": "财神",
+        "dragon_plaque": "龙牌",
+        "fu_gua": "福瓜",
+        "fu_dou": "福豆",
+    }
     for class_name in class_names:
         if class_name in style_by_class and not updates.get("style"):
             updates["style"] = style_by_class[class_name]
@@ -230,7 +256,7 @@ def review_jade_annotation_task(
         if normalized_action == "approve":
             merged_corrected = dict(record.get("corrected") or {})
             human_updates: dict[str, Any] = {}
-            for key in ["color", "water", "style", "theme"]:
+            for key in ANNOTATION_ATTRIBUTE_KEYS:
                 value = clean_attribute_value(key, (corrected or {}).get(key))
                 if value:
                     merged_corrected[key] = value
@@ -243,6 +269,10 @@ def review_jade_annotation_task(
         else:
             record["needs_review"] = False
             record["review_status"] = "rejected"
+            negative_reason = clean_negative_reason((corrected or {}).get("negative_reason"))
+            record["negative_sample"] = True
+            record["negative_reason"] = negative_reason
+            record["review_reason"] = f"no-labelable-object:{negative_reason}" if negative_reason else "no-labelable-object"
             record["rejected_at"] = now
         updated_record = record
         break
@@ -285,7 +315,7 @@ def approve_jade_annotation_whole_image_box(
             continue
         merged_corrected = dict(record.get("corrected") or {})
         human_updates: dict[str, Any] = {}
-        for key in ["color", "water", "style", "theme"]:
+        for key in ANNOTATION_ATTRIBUTE_KEYS:
             value = clean_attribute_value(key, (corrected or {}).get(key))
             if value:
                 merged_corrected[key] = value
@@ -508,6 +538,30 @@ def normalize_box_class_name(value: Any) -> str:
     )
 
 
+def clean_negative_reason(value: Any) -> str:
+    text = str(value or "").strip()
+    allowed = {
+        "图里没有翡翠",
+        "画面太糊看不清",
+        "主体太小",
+        "主体被遮挡",
+        "被手遮挡",
+        "被字幕/弹幕遮挡",
+        "只有包装/证书/桌面",
+        "多件货混在一起",
+        "无法确定主商品",
+        "颜色无法100%判断",
+        "种水无法100%判断",
+        "款式无法100%判断",
+        "题材无法100%判断",
+        "工艺无法100%判断",
+        "图片重复",
+        "截图异常/黑屏/花屏",
+        "非翡翠商品",
+    }
+    return text if text in allowed else ""
+
+
 def import_jade_annotation_zip(
     zip_path: Path,
     *,
@@ -705,4 +759,3 @@ def to_public_image_path(image_path: Path) -> str:
         index = parts.index("uploads")
         return "/" + "/".join(parts[index:])
     return str(image_path)
-

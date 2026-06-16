@@ -228,6 +228,8 @@ export async function reviewJadeAnnotationTask(
     water?: string
     style?: string
     theme?: string
+    craft?: string
+    negative_reason?: string
   }
 ) {
   const { data } = await api.post<JadeAnnotationReviewResult>(
@@ -255,6 +257,7 @@ export async function approveJadeAnnotationWholeImageBox(
     water?: string
     style?: string
     theme?: string
+    craft?: string
   }
 ) {
   const { data } = await api.post<{
@@ -266,6 +269,7 @@ export async function approveJadeAnnotationWholeImageBox(
       water: string
       style: string
       theme: string
+      craft?: string
     }
     training: Record<string, unknown>
     training_eligible: boolean

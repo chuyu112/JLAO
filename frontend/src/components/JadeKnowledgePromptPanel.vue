@@ -3,7 +3,7 @@
     <header class="panel-header">
       <div class="jade-knowledge-title">
         <div class="panel-title">直播间知识库</div>
-        <div class="transcript-meta">{{ subjectLabel }} · 颜色/种水/样式/题材话术</div>
+        <div class="transcript-meta">{{ subjectLabel }} · 颜色/种水/款式/题材话术</div>
       </div>
       <span class="knowledge-count">{{ promptGroups.length }}</span>
     </header>
@@ -44,8 +44,8 @@ const subjectLabel = computed(() => (
 
 const color = computed(() => cleanValue(props.product?.color) || inferFromName(['阳绿', '帝王绿', '辣绿', '晴水', '蓝水', '紫罗兰', '白冰', '黄翡', '红翡', '墨翠', '飘花']) || '颜色待确认')
 const water = computed(() => cleanValue(props.product?.water) || inferFromName(['玻璃种', '高冰', '冰种', '冰胶', '糯冰', '糯种', '豆种']) || '种水待确认')
-const style = computed(() => cleanValue(props.product?.style) || cleanValue(props.product?.category) || inferFromName(['手镯', '珠串', '蛋面', '戒指', '吊坠', '平安扣', '无事牌', '摆件']) || '样式待确认')
-const theme = computed(() => cleanValue(props.product?.theme) || inferFromName(['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '福瓜', '福豆', '龙']) || '题材待确认')
+const style = computed(() => cleanValue(props.product?.style) || cleanValue(props.product?.category) || inferFromName(['手镯', '珠串', '珠链', '蛋面', '戒指', '吊坠', '耳饰', '摆件']) || '款式待确认')
+const theme = computed(() => cleanValue(props.product?.theme) || inferFromName(['观音', '佛公', '平安扣', '如意', '叶子', '山水', '貔貅', '葫芦', '福瓜', '福豆', '龙牌']) || '题材待确认')
 
 const attributeLine = computed(() => [
   color.value,
@@ -66,7 +66,7 @@ const promptGroups = computed(() => [
     content: waterPrompt(water.value),
   },
   {
-    title: '样式',
+    title: '款式',
     tag: style.value,
     content: stylePrompt(style.value),
   },
@@ -128,9 +128,9 @@ function waterPrompt(value: string): string {
 function stylePrompt(value: string): string {
   if (value.includes('手镯')) return '手镯讲整体感，重点看圈口、条形、颜色分布和纹裂。它是最吃料也最看完整度的品类，可以强调上手气场和保值关注点。'
   if (value.includes('珠')) return '珠串讲统一度：珠径、颜色、种水、孔道和圆度要协调。适合提醒观众看整串是否顺眼，别只盯一颗特别亮的珠子。'
-  if (value.includes('蛋') || value.includes('戒')) return '蛋面、戒面讲饱满度和起光，面型要鼓，颜色要聚。小件更考验颜色集中度，适合讲精致和日常搭配。'
-  if (value.includes('吊坠') || value.includes('挂件') || value.includes('牌')) return '挂件、牌子讲料子和雕工的配合：种水托底，题材加分。镜头里可以多给侧面厚度和雕刻细节。'
-  return '样式讲佩戴场景：日常、送礼、收藏、搭配。先说适合谁，再说为什么适合，观众更容易代入。'
+  if (value.includes('蛋') || value.includes('戒')) return '蛋面讲饱满度和起光，面型要鼓，颜色要聚。小件更考验颜色集中度，适合讲精致和日常搭配。'
+  if (value.includes('吊坠')) return '吊坠讲料子和雕工的配合：种水托底，题材加分。镜头里可以多给侧面厚度和雕刻细节。'
+  return '款式讲佩戴场景：日常、送礼、收藏、搭配。先说适合谁，再说为什么适合，观众更容易代入。'
 }
 
 function themePrompt(value: string): string {

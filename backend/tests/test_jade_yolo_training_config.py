@@ -18,7 +18,9 @@ class JadeYoloTrainingConfigTests(unittest.TestCase):
         self.assertIn("0: jade_bangle", yaml_text)
         self.assertIn("13: gourd", yaml_text)
         self.assertIn("18: fu_dou", yaml_text)
-        self.assertEqual(len(JADE_YOLO_CLASS_NAMES), 19)
+        self.assertIn("19: jade_necklace", yaml_text)
+        self.assertIn("20: jade_earring", yaml_text)
+        self.assertEqual(len(JADE_YOLO_CLASS_NAMES), 21)
 
     def test_all_training_classes_map_to_runtime_jade_attributes(self) -> None:
         from app.services.jade_training_config import JADE_YOLO_CLASS_NAMES

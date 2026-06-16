@@ -462,6 +462,7 @@ export interface JadeAnnotationTasks {
       water: string
       style: string
       theme: string
+      craft?: string
     }
     classes: string[]
     needs_manual_class?: boolean
@@ -504,6 +505,7 @@ export interface JadeAnnotationReviewResult {
     water: string
     style: string
     theme: string
+    craft?: string
   }
   training_eligible: boolean
 }
@@ -514,6 +516,7 @@ export interface JadeTaxonomyOptions {
   waters: string[]
   styles: string[]
   themes: string[]
+  crafts?: string[]
 }
 
 export interface JadeAnnotationExportResult {

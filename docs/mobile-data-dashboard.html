@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JLAO 手机数据看板</title>
+  <style>
+    @page {
+      size: 390px 844px;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: #eef1f5;
+      color: #18202f;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page {
+      width: 390px;
+      min-height: 844px;
+      padding: 20px 18px 18px;
+      background: #f7f8fb;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .brand {
+      display: grid;
+      gap: 4px;
+    }
+
+    .label {
+      color: #657084;
+      font-size: 10px;
+      letter-spacing: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 24px;
+      line-height: 1.18;
+      font-weight: 800;
+      color: #101828;
+    }
+
+    h2 {
+      font-size: 19px;
+      line-height: 1.25;
+      font-weight: 800;
+      color: #101828;
+      margin-bottom: 10px;
+    }
+
+    h3 {
+      font-size: 13px;
+      line-height: 1.3;
+      font-weight: 700;
+      color: #263142;
+    }
+
+    .date-chip {
+      min-width: 82px;
+      padding: 8px 9px;
+      border: 1px solid #d8dde7;
+      border-radius: 8px;
+      background: #ffffff;
+      text-align: right;
+    }
+
+    .date-chip strong {
+      display: block;
+      font-size: 13px;
+      color: #263142;
+    }
+
+    .date-chip span {
+      display: block;
+      margin-top: 2px;
+      color: #6c7688;
+      font-size: 10px;
+    }
+
+    .notice {
+      padding: 9px 10px;
+      border-radius: 8px;
+      background: #fff8e8;
+      border: 1px solid #f0d49a;
+      color: #694b15;
+      font-size: 11px;
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+
+    .section {
+      margin-top: 12px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .metric {
+      min-height: 82px;
+      padding: 11px 10px;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid #dfe4ee;
+      display: grid;
+      align-content: space-between;
+      gap: 8px;
+    }
+
+    .metric .name {
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .metric .value {
+      color: #111827;
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 800;
+    }
+
+    .metric .trend {
+      color: #0b7a53;
+      font-size: 10px;
+      line-height: 1.2;
+    }
+
+    .metric.warn .trend {
+      color: #b54708;
+    }
+
+    .card {
+      padding: 12px;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid #dfe4ee;
+      margin-top: 8px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #eef1f5;
+    }
+
+    .row:last-child {
+      border-bottom: 0;
+    }
+
+    .row-main {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .row-main strong {
+      font-size: 12px;
+      color: #202938;
+      line-height: 1.3;
+    }
+
+    .row-main span {
+      font-size: 10px;
+      color: #667085;
+      line-height: 1.35;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 54px;
+      padding: 5px 7px;
+      border-radius: 999px;
+      background: #e8f4ff;
+      color: #175cd3;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill.good {
+      background: #e8f8ef;
+      color: #087443;
+    }
+
+    .pill.warn {
+      background: #fff3e3;
+      color: #b54708;
+    }
+
+    .pill.danger {
+      background: #fdecec;
+      color: #b42318;
+    }
+
+    .bar {
+      height: 8px;
+      border-radius: 999px;
+      background: #e6eaf1;
+      overflow: hidden;
+      margin-top: 7px;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #1f8a70, #3fa7d6);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .score {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: conic-gradient(#1f8a70 0 78%, #e6eaf1 78% 100%);
+      position: relative;
+      color: #10251f;
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .score::after {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: 50%;
+      background: #ffffff;
+    }
+
+    .score span {
+      position: relative;
+      z-index: 1;
+    }
+
+    .list {
+      display: grid;
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: 6px 1fr;
+      gap: 8px;
+      color: #384355;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #1f8a70;
+      margin-top: 5px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 9px;
+      padding: 9px;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid #dfe4ee;
+    }
+
+    .step time {
+      color: #175cd3;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .step strong {
+      display: block;
+      color: #202938;
+      font-size: 12px;
+      line-height: 1.3;
+      margin-bottom: 3px;
+    }
+
+    .step span {
+      display: block;
+      color: #667085;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .goods-grid {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .goods {
+      display: grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 9px;
+      align-items: center;
+      padding: 9px;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid #dfe4ee;
+    }
+
+    .thumb {
+      width: 52px;
+      height: 52px;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0) 24%),
+        linear-gradient(135deg, #c7362f, #e8a75e 45%, #2f806a);
+      border: 1px solid #d6dbe5;
+    }
+
+    .thumb.green {
+      background:
+        radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 24%),
+        linear-gradient(135deg, #88b77c, #dfe9c2 46%, #377d63);
+    }
+
+    .thumb.light {
+      background:
+        radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 24%),
+        linear-gradient(135deg, #edf3ed, #a6d0c5 55%, #2f806a);
+    }
+
+    .goods strong {
+      display: block;
+      font-size: 12px;
+      color: #202938;
+      line-height: 1.3;
+      margin-bottom: 2px;
+    }
+
+    .goods span {
+      display: block;
+      font-size: 10px;
+      color: #667085;
+      line-height: 1.35;
+    }
+
+    .role {
+      color: #175cd3;
+      background: #e8f4ff;
+      border-radius: 999px;
+      padding: 5px 7px;
+      font-size: 10px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .matrix {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .matrix-row {
+      display: grid;
+      grid-template-columns: 72px 1fr 34px;
+      gap: 8px;
+      align-items: center;
+      font-size: 10px;
+      color: #667085;
+    }
+
+    .matrix-row strong {
+      color: #263142;
+      font-size: 11px;
+    }
+
+    .footer {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      color: #8b95a7;
+      font-size: 9px;
+      border-top: 1px solid #e1e6ef;
+      padding-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="topbar">
+      <div class="brand">
+        <div class="label">JLAO Jade Live AI Optimizer</div>
+        <h1>公司直播数据看板</h1>
+      </div>
+      <div class="date-chip">
+        <strong>06/13</strong>
+        <span>手机版样稿</span>
+      </div>
+    </div>
+
+    <div class="notice">本 PDF 为手机查看版看板模板，页面中的数值是样稿数据。正式接入后由直播后台、商品库、货盘图片、STT、OCR、成交卡片和运营评分自动生成。</div>
+
+    <div class="grid-2">
+      <div class="metric">
+        <div class="name">今日直播间</div>
+        <div class="value">6</div>
+        <div class="trend">2 个高互动场次</div>
+      </div>
+      <div class="metric">
+        <div class="name">成交金额</div>
+        <div class="value">8.6w</div>
+        <div class="trend">较昨日 +12.4%</div>
+      </div>
+      <div class="metric">
+        <div class="name">平均停留</div>
+        <div class="value">54s</div>
+        <div class="trend">福利款段提升明显</div>
+      </div>
+      <div class="metric warn">
+        <div class="name">风险提醒</div>
+        <div class="value">9</div>
+        <div class="trend">价格绝对化需降级</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>老板总览</h2>
+      <div class="card">
+        <div class="row">
+          <div class="row-main">
+            <strong>1 号直播间</strong>
+            <span>成交最高，红翡挂件询价集中，主播节奏稳定</span>
+          </div>
+          <div class="pill good">领先</div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>3 号直播间</strong>
+            <span>在线人数高但成交弱，需要换讲法和补证书</span>
+          </div>
+          <div class="pill warn">待优化</div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>新人主播场</strong>
+            <span>互动足，逼单偏急，适合用标准脚本训练</span>
+          </div>
+          <div class="pill">训练</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>今日异常</h2>
+      <div class="card">
+        <div class="item"><i class="dot"></i><span>本地 OCR 开启时会占用算力，STT 优先使用阿里云，避免转写抖动影响复盘。</span></div>
+        <div class="item"><i class="dot"></i><span>两件高价货停留低于均值，建议缩短铺垫，先讲真实观感、证书和适合人群。</span></div>
+      </div>
+    </div>
+
+    <div class="footer"><span>JLAO 数据看板</span><span>01 / 05</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topbar">
+      <div class="brand">
+        <div class="label">Realtime Room Board</div>
+        <h1>直播间实时状态</h1>
+      </div>
+      <div class="date-chip">
+        <strong>LIVE</strong>
+        <span>运营视角</span>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="metric">
+        <div class="name">在线人数</div>
+        <div class="value">382</div>
+        <div class="trend">进入稳定讲品段</div>
+      </div>
+      <div class="metric">
+        <div class="name">互动热度</div>
+        <div class="value">76</div>
+        <div class="trend">问价较集中</div>
+      </div>
+      <div class="metric warn">
+        <div class="name">主播状态</div>
+        <div class="value">中</div>
+        <div class="trend">语速偏快，需停顿</div>
+      </div>
+      <div class="metric">
+        <div class="name">成交承接</div>
+        <div class="value">68%</div>
+        <div class="trend">可补场控跟进</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>实时建议</h2>
+      <div class="card">
+        <div class="split">
+          <div class="score"><span>78</span></div>
+          <div>
+            <h3>本场综合评分</h3>
+            <div class="list">
+              <div class="item"><i class="dot"></i><span>先把红翡挂件讲完真实观感，再补一句“自然光再确认”，避免颜色说死。</span></div>
+              <div class="item"><i class="dot"></i><span>在线人数上升时不要立刻逼单，先用小故事和佩戴场景延长停留。</span></div>
+              <div class="item"><i class="dot"></i><span>询价集中但成交弱，场控需要补“适合谁戴”和“今天福利点”。</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>直播漏斗</h2>
+      <div class="card">
+        <div class="matrix-row">
+          <strong>进入</strong>
+          <div class="bar"><i style="width: 92%"></i></div>
+          <span>4,820</span>
+        </div>
+        <div class="matrix-row">
+          <strong>停留</strong>
+          <div class="bar"><i style="width: 68%"></i></div>
+          <span>2,136</span>
+        </div>
+        <div class="matrix-row">
+          <strong>互动</strong>
+          <div class="bar"><i style="width: 54%"></i></div>
+          <span>684</span>
+        </div>
+        <div class="matrix-row">
+          <strong>询价</strong>
+          <div class="bar"><i style="width: 38%"></i></div>
+          <span>126</span>
+        </div>
+        <div class="matrix-row">
+          <strong>成交</strong>
+          <div class="bar"><i style="width: 22%"></i></div>
+          <span>31</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>场控提醒</h2>
+      <div class="card">
+        <div class="row">
+          <div class="row-main">
+            <strong>弹幕问题</strong>
+            <span>“这个会不会太红？”建议回复：偏红翡调，镜头有暖光，自然光再确认。</span>
+          </div>
+          <div class="pill">可发</div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>风险话术</strong>
+            <span>避免“绝对保值”“全网最低”，改成“同品质里价格比较友好”。</span>
+          </div>
+          <div class="pill danger">降级</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>实时采集 + STT + OCR + 成交卡片</span><span>02 / 05</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topbar">
+      <div class="brand">
+        <div class="label">Daily Goods Plan</div>
+        <h1>当日货盘与开播计划</h1>
+      </div>
+      <div class="date-chip">
+        <strong>10:00</strong>
+        <span>定时读取</span>
+      </div>
+    </div>
+
+    <div class="notice">运营每天把货盘图片放到固定目录，知识库按时读取并生成货盘草稿。低置信度、编号缺失、价格不清晰、证书不清晰的货品必须由运营确认。</div>
+
+    <div class="section">
+      <h2>今日货盘角色</h2>
+      <div class="goods-grid">
+        <div class="goods">
+          <div class="thumb"></div>
+          <div>
+            <strong>红翡叶子挂件</strong>
+            <span>偏红翡调，豆种，适合先讲真实观感和题材寓意</span>
+          </div>
+          <div class="role">主推</div>
+        </div>
+        <div class="goods">
+          <div class="thumb green"></div>
+          <div>
+            <strong>飘绿平安扣</strong>
+            <span>上手效果直观，适合做互动款和留人款</span>
+          </div>
+          <div class="role">引流</div>
+        </div>
+        <div class="goods">
+          <div class="thumb light"></div>
+          <div>
+            <strong>冰感观音牌</strong>
+            <span>证书和厚度要讲清楚，适合放在中后段承接</span>
+          </div>
+          <div class="role">利润</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>开播前训练</h2>
+      <div class="timeline">
+        <div class="step">
+          <time>开播前 60</time>
+          <div>
+            <strong>确认货盘</strong>
+            <span>核对图片、编号、价格、证书、瑕疵、主推顺序。</span>
+          </div>
+        </div>
+        <div class="step">
+          <time>开播前 30</time>
+          <div>
+            <strong>主播预训练</strong>
+            <span>每件货练 3 句话：真实观感、适合人群、下单理由。</span>
+          </div>
+        </div>
+        <div class="step">
+          <time>开播前 10</time>
+          <div>
+            <strong>运营对齐</strong>
+            <span>确定福利节奏、换款条件、禁忌话术和场控回复。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>讲解顺序建议</h2>
+      <div class="card">
+        <div class="item"><i class="dot"></i><span>先用上手效果明显的引流款拉停留，再切红翡叶子做主推。</span></div>
+        <div class="item"><i class="dot"></i><span>主推款不要先讲价格，先讲颜色是否干净、题材寓意、佩戴场景。</span></div>
+        <div class="item"><i class="dot"></i><span>高价利润款放在互动稳定后，先补证书、厚度、瑕疵和适合人群。</span></div>
+      </div>
+    </div>
+
+    <div class="footer"><span>固定货盘目录 -> 知识库定时读取</span><span>03 / 05</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topbar">
+      <div class="brand">
+        <div class="label">Knowledge Evolution</div>
+        <h1>知识库进化闭环</h1>
+      </div>
+      <div class="date-chip">
+        <strong>评分</strong>
+        <span>运营训练</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>知识库要学什么</h2>
+      <div class="card">
+        <div class="row">
+          <div class="row-main">
+            <strong>商品知识</strong>
+            <span>颜色、种水、样式、题材、场口、瑕疵、证书、价格带、适合人群</span>
+          </div>
+          <div class="pill">基础</div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>直播话术</strong>
+            <span>开场、留人、转款、逼单、福利、冷场救场、风险降级</span>
+          </div>
+          <div class="pill">脚本</div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>成交经验</strong>
+            <span>成交节点、停留节点、询价问题、加购原因、退款和售后反馈</span>
+          </div>
+          <div class="pill">闭环</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>每日训练样本</h2>
+      <div class="grid-2">
+        <div class="metric">
+          <div class="name">复盘评分</div>
+          <div class="value">12</div>
+          <div class="trend">运营人工标注</div>
+        </div>
+        <div class="metric">
+          <div class="name">优秀话术</div>
+          <div class="value">28</div>
+          <div class="trend">可复用入库</div>
+        </div>
+        <div class="metric warn">
+          <div class="name">低效片段</div>
+          <div class="value">15</div>
+          <div class="trend">下次开播规避</div>
+        </div>
+        <div class="metric">
+          <div class="name">风险改写</div>
+          <div class="value">9</div>
+          <div class="trend">规则强化</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>进化路径</h2>
+      <div class="timeline">
+        <div class="step">
+          <time>阶段 1</time>
+          <div>
+            <strong>人工复盘打分</strong>
+            <span>运营给每天直播评分，沉淀好话术、差话术、成交节点和风险点。</span>
+          </div>
+        </div>
+        <div class="step">
+          <time>阶段 2</time>
+          <div>
+            <strong>系统建议分</strong>
+            <span>知识库按历史标准给建议分，运营确认或修正。</span>
+          </div>
+        </div>
+        <div class="step">
+          <time>阶段 3</time>
+          <div>
+            <strong>自动评分和建议</strong>
+            <span>系统自动输出复盘分、开播计划、主播训练题和下一场动作。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>人工评分 -> 系统建议 -> 知识库自动评价</span><span>04 / 05</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topbar">
+      <div class="brand">
+        <div class="label">Replay & Next Actions</div>
+        <h1>复盘评分与明日动作</h1>
+      </div>
+      <div class="date-chip">
+        <strong>收播后</strong>
+        <span>自动生成</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>本场评分</h2>
+      <div class="card">
+        <div class="matrix">
+          <div class="matrix-row">
+            <strong>讲品完整</strong>
+            <div class="bar"><i style="width: 82%"></i></div>
+            <span>8.2</span>
+          </div>
+          <div class="matrix-row">
+            <strong>互动承接</strong>
+            <div class="bar"><i style="width: 74%"></i></div>
+            <span>7.4</span>
+          </div>
+          <div class="matrix-row">
+            <strong>成交节奏</strong>
+            <div class="bar"><i style="width: 69%"></i></div>
+            <span>6.9</span>
+          </div>
+          <div class="matrix-row">
+            <strong>风险控制</strong>
+            <div class="bar"><i style="width: 88%"></i></div>
+            <span>8.8</span>
+          </div>
+          <div class="matrix-row">
+            <strong>复盘可执行</strong>
+            <div class="bar"><i style="width: 80%"></i></div>
+            <span>8.0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>明日开播建议</h2>
+      <div class="card">
+        <div class="item"><i class="dot"></i><span>红翡类货品继续保留，但讲法从“颜色稀缺”改成“真实观感 + 题材寓意 + 适合人群”。</span></div>
+        <div class="item"><i class="dot"></i><span>新人主播先练叶子、平安扣、佛公三类标准结构，每件货控制在 90 秒内讲清楚。</span></div>
+        <div class="item"><i class="dot"></i><span>成交弱的高价款，开播前补充证书、瑕疵、厚度和上身图，避免直播间临时解释。</span></div>
+        <div class="item"><i class="dot"></i><span>场控准备 20 条问价、证书、瑕疵、是否天然、适合送礼的标准回复。</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>数据接入优先级</h2>
+      <div class="timeline">
+        <div class="step">
+          <time>P0</time>
+          <div>
+            <strong>直播采集稳定</strong>
+            <span>画面、音频、STT、OCR、录屏不要互相拖慢。</span>
+          </div>
+        </div>
+        <div class="step">
+          <time>P1</time>
+          <div>
+            <strong>货盘定时读取</strong>
+            <span>固定目录读取图片，生成当日货盘草稿，运营确认。</span>
+          </div>
+        </div>
+        <div class="step">
+          <time>P2</time>
+          <div>
+            <strong>成交和画像接入</strong>
+            <span>接入粉丝画像、购买画像、商品成交和售后反馈。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer"><span>JLAO 手机数据看板模板</span><span>05 / 05</span></div>
+  </section>
+</body>
+</html>

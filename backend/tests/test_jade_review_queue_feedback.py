@@ -46,7 +46,7 @@ def test_review_queue_feedback_converter_writes_corrected_attributes(tmp_path):
 
 def test_review_queue_feedback_converter_skips_incomplete_when_required():
     module = _load_converter_module()
-    rows = [{"image_path": "jade/b.jpg", "color": "蓝水", "water": "", "style": "牌子", "theme": ""}]
+    rows = [{"image_path": "jade/b.jpg", "color": "蓝水", "water": "", "style": "吊坠", "theme": ""}]
 
     result = module.convert_records(rows, require_complete=True)
 

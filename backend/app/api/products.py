@@ -123,10 +123,11 @@ def _normalized_feedback_evidence(value: object) -> dict:
 async def get_jade_taxonomy_options() -> dict:
     return {
         "status": "ok",
-        "colors": ["阳绿", "蓝水", "晴水", "紫罗兰", "白冰", "飘花", "黄翡", "墨翠", "红翡"],
-        "waters": ["玻璃种", "高冰", "冰种", "冰糯", "糯冰", "细糯", "糯种", "豆种"],
-        "styles": ["手镯", "珠串", "蛋面", "吊坠", "戒指", "牌子", "平安扣", "摆件"],
-        "themes": ["观音", "佛公", "如意", "叶子", "山水", "貔貅", "葫芦", "无事牌", "财神", "龙牌", "福瓜", "福豆"],
+        "colors": ["帝王绿", "阳绿", "辣绿", "苹果绿", "豆绿", "绿色", "蓝水", "晴水", "油青", "紫罗兰", "春带彩", "白冰", "无色", "白底青", "飘花", "洒金", "黄翡", "冰黄", "墨翠", "红翡", "多彩"],
+        "waters": ["玻璃种", "高冰", "冰种", "冰胶", "起冰", "冰糯", "糯冰", "起胶", "糯化", "细糯", "糯种", "豆种"],
+        "styles": ["手镯", "珠串", "珠链", "蛋面", "戒指", "吊坠", "耳饰", "摆件"],
+        "themes": ["观音", "佛公", "平安扣", "如意", "叶子", "山水", "貔貅", "葫芦", "无事牌", "财神", "龙牌", "福瓜", "福豆"],
+        "crafts": ["裸石", "镶嵌"],
     }
 
 
@@ -692,7 +693,7 @@ async def annotate_product_jade_attributes(product_id: str, payload: dict = Body
         for key in ["color", "water", "style", "theme"]
     }
     if not any(corrected.values()):
-        raise HTTPException(status_code=400, detail="请至少标注颜色、种水、样式、题材中的一个字段")
+        raise HTTPException(status_code=400, detail="请至少标注颜色、种水、款式、题材中的一个字段")
 
     predicted = {
         "color": product.color,

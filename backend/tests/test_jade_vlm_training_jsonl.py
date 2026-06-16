@@ -47,7 +47,7 @@ def test_vlm_training_jsonl_exports_multimodal_message_record(tmp_path):
 
 def test_vlm_training_jsonl_skips_incomplete_labels_by_default():
     module = _load_vlm_export_module()
-    records = [{"image_path": "jade/b.jpg", "color": "蓝水", "water": "", "style": "牌子", "theme": ""}]
+    records = [{"image_path": "jade/b.jpg", "color": "蓝水", "water": "", "style": "吊坠", "theme": ""}]
 
     result = module.convert_records(records)
 

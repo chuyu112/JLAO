@@ -51,7 +51,7 @@ def test_vlm_training_jsonl_contract_reports_missing_image_and_attributes():
         {
             "messages": [
                 {"role": "user", "content": [{"type": "text", "text": "识别"}]},
-                {"role": "assistant", "content": '{"color":"蓝水","water":"","style":"牌子","theme":""}'},
+                {"role": "assistant", "content": '{"color":"蓝水","water":"","style":"吊坠","theme":""}'},
             ]
         }
     ]

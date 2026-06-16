@@ -6,7 +6,7 @@ def test_text_recognizes_color_water_style_and_theme():
 
     assert result.color == "蓝水"
     assert result.water == "高冰"
-    assert result.style == "牌子"
+    assert result.style == "吊坠"
     assert result.theme == "龙牌"
 
 

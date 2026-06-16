@@ -62,7 +62,7 @@
           tag
           clearable
           :options="jadeSelectOptions.styles"
-          placeholder="样式：手镯 / 珠串 / 蛋面 / 吊坠..."
+          placeholder="款式：手镯 / 珠串 / 珠链 / 蛋面..."
         />
         <n-select
           v-model:value="annotationDraft.theme"
@@ -116,8 +116,8 @@ const annotationDraft = reactive({
 const fallbackTaxonomy = {
   colors: ['帝王绿', '阳绿', '辣绿', '苹果绿', '豆绿', '绿色', '蓝水', '晴水', '油青', '紫罗兰', '春带彩', '白冰', '无色', '白底青', '飘花', '黄翡', '冰黄', '洒金', '墨翠', '红翡', '多彩'],
   waters: ['玻璃种', '高冰', '冰种', '冰胶', '起冰', '冰糯', '糯冰', '起胶', '糯化', '细糯', '糯种', '豆种'],
-  styles: ['手镯', '珠串', '蛋面', '戒面', '戒指', '挂件', '吊坠', '平安扣', '摆件', '把件', '耳饰'],
-  themes: ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙', '福瓜', '福豆'],
+  styles: ['手镯', '珠串', '珠链', '蛋面', '戒指', '吊坠', '耳饰', '摆件'],
+  themes: ['观音', '佛公', '平安扣', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆'],
 }
 const jadeSelectOptions = computed(() => ({
   colors: toOptions(jadeTaxonomy.value?.colors || fallbackTaxonomy.colors),

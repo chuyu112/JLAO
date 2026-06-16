@@ -56,7 +56,7 @@ def test_api_response_contract_accepts_nested_analysis_fields():
                 "analysis": {
                     "color": "蓝水",
                     "water": "高冰",
-                    "style": "牌子",
+                    "style": "吊坠",
                     "theme": "龙牌",
                     "confidence": 0.86,
                     "signals": {"vlm": ["蓝水高冰龙牌"]},
@@ -72,7 +72,7 @@ def test_api_response_contract_accepts_nested_analysis_fields():
     assert summary["results"][0]["attributes"] == {
         "color": "蓝水",
         "water": "高冰",
-        "style": "牌子",
+        "style": "吊坠",
         "theme": "龙牌",
     }
     assert summary["results"][0]["has_confidence"] is True

@@ -33,11 +33,11 @@ def test_prediction_results_summary_computes_coverage_and_accuracy():
         {
             "predicted_color": "蓝水",
             "predicted_water": "",
-            "predicted_style": "牌子",
+            "predicted_style": "吊坠",
             "predicted_theme": "龙牌",
             "expected_color": "晴水",
             "expected_water": "高冰",
-            "expected_style": "牌子",
+            "expected_style": "吊坠",
             "expected_theme": "龙牌",
         },
     ]

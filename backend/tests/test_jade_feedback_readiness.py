@@ -63,7 +63,7 @@ def test_feedback_readiness_extracts_batch_id_from_evidence_texts():
         "corrected": {
             "color": "蓝水",
             "water": "高冰",
-            "style": "牌子",
+            "style": "吊坠",
             "theme": "龙牌",
         },
     }

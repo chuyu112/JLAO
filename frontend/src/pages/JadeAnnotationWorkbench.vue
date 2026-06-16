@@ -38,7 +38,7 @@
           <img :src="resolveAssetUrl(task.image)" alt="" />
           <span>
             <strong>{{ taskClassText(task) }}</strong>
-            <small>{{ task.corrected.style || '样式未填' }} · {{ task.corrected.theme || '题材未填' }}</small>
+            <small>{{ task.corrected.style || '款式未选' }} · {{ task.corrected.theme || task.corrected.craft || '题材/工艺未选' }}</small>
             <small>{{ task.training?.box_mode === 'manual-box' ? '已有人工框' : task.status }}</small>
           </span>
         </button>
@@ -53,12 +53,11 @@
           <div class="canvas-actions">
             <n-button size="small" secondary :disabled="!canGoPrevious" @click="goPrevious">上一个</n-button>
             <n-button size="small" secondary :disabled="!canGoNext" @click="goNext">下一个</n-button>
-            <n-select v-model:value="selectedClass" size="small" class="class-select" :options="classOptions" filterable />
+            <n-tag size="small" type="info">{{ classLabel(selectedClass) }}</n-tag>
             <n-button size="small" secondary @click="addCenterBox">中心框</n-button>
             <n-button size="small" secondary :disabled="!boxes.length" @click="undoLastBox">撤回画框</n-button>
             <n-button size="small" secondary type="error" :disabled="selectedBoxIndex < 0" @click="deleteSelectedBox">删除框</n-button>
-            <n-button size="small" secondary type="warning" :loading="saving" @click="confirmWholeImage">整图框</n-button>
-            <n-button size="small" type="primary" :loading="saving" @click="saveBoxes">保存标注</n-button>
+            <n-button size="small" type="primary" :loading="saving" @click="saveCurrentTask">保存标注</n-button>
           </div>
         </div>
 
@@ -108,20 +107,96 @@
         <div v-if="selectedTask" class="attribute-form">
           <label>
             <span>颜色</span>
-            <n-select v-model:value="attributeDraft.color" size="small" :options="taxonomySelectOptions.colors" filterable clearable />
+            <div class="option-grid">
+              <button
+                v-for="option in taxonomySelectOptions.colors"
+                :key="option.value"
+                type="button"
+                class="option-chip"
+                :class="{ active: attributeDraft.color === option.value }"
+                @click="selectAttribute('color', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </label>
           <label>
             <span>种水</span>
-            <n-select v-model:value="attributeDraft.water" size="small" :options="taxonomySelectOptions.waters" filterable clearable />
+            <div class="option-grid">
+              <button
+                v-for="option in taxonomySelectOptions.waters"
+                :key="option.value"
+                type="button"
+                class="option-chip"
+                :class="{ active: attributeDraft.water === option.value }"
+                @click="selectAttribute('water', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </label>
           <label>
-            <span>样式</span>
-            <n-select v-model:value="attributeDraft.style" size="small" :options="taxonomySelectOptions.styles" filterable clearable />
+            <span>款式</span>
+            <div class="option-grid">
+              <button
+                v-for="option in taxonomySelectOptions.styles"
+                :key="option.value"
+                type="button"
+                class="option-chip"
+                :class="{ active: attributeDraft.style === option.value }"
+                @click="selectAttribute('style', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </label>
-          <label>
+          <label v-if="attributeDraft.style === '吊坠'">
             <span>题材</span>
-            <n-select v-model:value="attributeDraft.theme" size="small" :options="taxonomySelectOptions.themes" filterable clearable />
+            <div class="option-grid">
+              <button
+                v-for="option in taxonomySelectOptions.themes"
+                :key="option.value"
+                type="button"
+                class="option-chip"
+                :class="{ active: attributeDraft.theme === option.value }"
+                @click="selectAttribute('theme', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </label>
+          <label>
+            <span>工艺</span>
+            <div class="option-grid">
+              <button
+                v-for="option in taxonomySelectOptions.crafts"
+                :key="option.value"
+                type="button"
+                class="option-chip"
+                :class="{ active: attributeDraft.craft === option.value }"
+                @click="selectAttribute('craft', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </label>
+        </div>
+
+        <div v-if="selectedTask" class="negative-panel">
+          <strong>无可标注</strong>
+          <span>选中原因后保存，样本进入负样本池，不进翡翠框训练集。</span>
+          <div class="option-grid">
+            <button
+              v-for="reason in negativeReasons"
+              :key="reason"
+              type="button"
+              class="option-chip negative"
+              :class="{ active: negativeReason === reason }"
+              @click="toggleNegativeReason(reason)"
+            >
+              {{ reason }}
+            </button>
+          </div>
         </div>
 
         <div class="box-list">
@@ -132,14 +207,19 @@
             :class="{ selected: selectedBoxIndex === index }"
             @click="selectedBoxIndex = index"
           >
-            <n-select v-model:value="box.class_name" size="small" :options="classOptions" filterable />
+            <n-select
+              :value="box.class_name"
+              size="small"
+              :options="classOptions"
+              @update:value="value => setBoxClass(index, String(value || ''))"
+            />
             <div class="box-numbers">
               <span>x {{ box.x_center.toFixed(3) }}</span>
               <span>y {{ box.y_center.toFixed(3) }}</span>
               <span>w {{ box.width.toFixed(3) }}</span>
               <span>h {{ box.height.toFixed(3) }}</span>
             </div>
-            <n-button size="tiny" secondary type="error" @click="removeBox(index)">删除</n-button>
+            <n-button size="tiny" secondary type="error" @click.stop="removeBox(index)">删除</n-button>
           </div>
           <div v-if="!boxes.length" class="empty-state compact">还没有主体框。</div>
         </div>
@@ -149,8 +229,10 @@
           <n-button secondary :disabled="!canGoNext" @click="goNext">下一个</n-button>
           <n-button secondary :disabled="!boxes.length" @click="undoLastBox">撤回画框</n-button>
           <n-button secondary type="error" :disabled="selectedBoxIndex < 0" @click="deleteSelectedBox">删除框</n-button>
-          <n-button type="primary" :loading="saving" @click="saveBoxes">保存</n-button>
-          <n-button secondary type="error" :loading="saving" @click="rejectTask">丢弃样本</n-button>
+          <n-button type="primary" :loading="saving" @click="saveCurrentTask">保存</n-button>
+          <n-button secondary type="warning" :loading="saving" :disabled="!negativeReason" @click="saveCurrentTask">
+            保存无可标注
+          </n-button>
         </div>
       </aside>
     </section>
@@ -163,7 +245,6 @@ import { NButton, NInputNumber, NSelect, NTag, useMessage } from 'naive-ui'
 import AppTopNav from '../components/AppTopNav.vue'
 import {
   buildJadeTrainingDataset,
-  approveJadeAnnotationWholeImageBox,
   fetchJadeAnnotationTasks,
   fetchJadeTaxonomyOptions,
   fetchJadeTrainingStatus,
@@ -181,6 +262,14 @@ type YoloBox = {
   width: number
   height: number
 }
+type AttributeKey = 'color' | 'water' | 'style' | 'theme' | 'craft'
+type AttributeDraft = {
+  color: string
+  water: string
+  style: string
+  theme: string
+  craft: string
+}
 type DrawState = {
   startX: number
   startY: number
@@ -192,10 +281,11 @@ type DrawState = {
 const CLASS_LABELS: Record<string, string> = {
   jade_bangle: '手镯',
   jade_beads: '珠串',
+  jade_necklace: '珠链',
   jade_cabochon: '蛋面',
   jade_pendant: '吊坠',
   jade_ring: '戒指',
-  jade_plaque: '挂件',
+  jade_plaque: '吊坠',
   pingan_kou: '平安扣',
   guanyin: '观音',
   buddha: '佛公',
@@ -209,7 +299,79 @@ const CLASS_LABELS: Record<string, string> = {
   dragon_plaque: '龙牌',
   fu_gua: '福瓜',
   fu_dou: '福豆',
+  jade_earring: '耳饰',
 }
+
+const STYLE_CLASS_BY_VALUE: Record<string, string> = {
+  手镯: 'jade_bangle',
+  珠串: 'jade_beads',
+  珠链: 'jade_necklace',
+  蛋面: 'jade_cabochon',
+  戒指: 'jade_ring',
+  吊坠: 'jade_pendant',
+  耳饰: 'jade_earring',
+  摆件: 'jade_ornament',
+}
+
+const THEME_CLASS_BY_VALUE: Record<string, string> = {
+  观音: 'guanyin',
+  佛公: 'buddha',
+  平安扣: 'pingan_kou',
+  如意: 'ruyi',
+  叶子: 'leaf',
+  山水: 'landscape',
+  貔貅: 'pixiu',
+  葫芦: 'gourd',
+  无事牌: 'jade_plaque',
+  财神: 'caishen',
+  龙牌: 'dragon_plaque',
+  福瓜: 'fu_gua',
+  福豆: 'fu_dou',
+}
+
+const ATTRIBUTE_BY_CLASS: Record<string, Partial<Pick<AttributeDraft, 'style' | 'theme'>>> = {
+  jade_bangle: { style: '手镯' },
+  jade_beads: { style: '珠串' },
+  jade_necklace: { style: '珠链' },
+  jade_cabochon: { style: '蛋面' },
+  jade_ring: { style: '戒指' },
+  jade_pendant: { style: '吊坠' },
+  jade_earring: { style: '耳饰' },
+  jade_ornament: { style: '摆件' },
+  jade_plaque: { style: '吊坠', theme: '无事牌' },
+  pingan_kou: { style: '吊坠', theme: '平安扣' },
+  guanyin: { style: '吊坠', theme: '观音' },
+  buddha: { style: '吊坠', theme: '佛公' },
+  ruyi: { style: '吊坠', theme: '如意' },
+  leaf: { style: '吊坠', theme: '叶子' },
+  landscape: { style: '吊坠', theme: '山水' },
+  pixiu: { style: '吊坠', theme: '貔貅' },
+  gourd: { style: '吊坠', theme: '葫芦' },
+  caishen: { style: '吊坠', theme: '财神' },
+  dragon_plaque: { style: '吊坠', theme: '龙牌' },
+  fu_gua: { style: '吊坠', theme: '福瓜' },
+  fu_dou: { style: '吊坠', theme: '福豆' },
+}
+
+const negativeReasons = [
+  '图里没有翡翠',
+  '画面太糊看不清',
+  '主体太小',
+  '主体被遮挡',
+  '被手遮挡',
+  '被字幕/弹幕遮挡',
+  '只有包装/证书/桌面',
+  '多件货混在一起',
+  '无法确定主商品',
+  '颜色无法100%判断',
+  '种水无法100%判断',
+  '款式无法100%判断',
+  '题材无法100%判断',
+  '工艺无法100%判断',
+  '图片重复',
+  '截图异常/黑屏/花屏',
+  '非翡翠商品',
+]
 
 const messageApi = useMessage()
 const limit = ref(120)
@@ -225,7 +387,8 @@ const tasks = ref<AnnotationTask[]>([])
 const selectedId = ref('')
 const boxes = ref<YoloBox[]>([])
 const selectedBoxIndex = ref(-1)
-const attributeDraft = ref({ color: '', water: '', style: '', theme: '' })
+const attributeDraft = ref<AttributeDraft>({ color: '', water: '', style: '', theme: '', craft: '' })
+const negativeReason = ref('')
 const selectedClass = ref('jade_bangle')
 const stageRef = ref<HTMLElement | null>(null)
 const drawing = ref<DrawState | null>(null)
@@ -239,8 +402,9 @@ const classOptions = computed(() => classOrder.value.map(value => ({ value, labe
 const taxonomySelectOptions = computed(() => ({
   colors: toSelectOptions(taxonomy.value?.colors || ['阳绿', '蓝水', '晴水', '紫罗兰', '白冰', '飘花', '黄翡', '墨翠', '红翡']),
   waters: toSelectOptions(taxonomy.value?.waters || ['玻璃种', '高冰', '冰种', '冰糯', '糯冰', '细糯', '糯种', '豆种']),
-  styles: toSelectOptions(taxonomy.value?.styles || ['手镯', '珠串', '蛋面', '吊坠', '戒指', '牌子', '平安扣', '摆件']),
-  themes: toSelectOptions(taxonomy.value?.themes || ['观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆']),
+  styles: toSelectOptions(taxonomy.value?.styles || ['手镯', '珠串', '珠链', '蛋面', '戒指', '吊坠', '耳饰', '摆件']),
+  themes: toSelectOptions(taxonomy.value?.themes || ['观音', '佛公', '平安扣', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆']),
+  crafts: toSelectOptions(taxonomy.value?.crafts || ['裸石', '镶嵌']),
 }))
 const manualBoxCount = computed(() => tasks.value.filter(task => task.training?.box_mode === 'manual-box').length)
 const queueHint = computed(() => {
@@ -294,13 +458,19 @@ function hydrateBoxes(task: AnnotationTask | null) {
   const existing = task?.training?.yolo_boxes || []
   boxes.value = existing.map(box => ({ ...box }))
   selectedBoxIndex.value = boxes.value.length ? 0 : -1
+  const rawStyle = task?.corrected.style || ''
+  const normalizedStyle = normalizeStyle(rawStyle)
+  const normalizedTheme = normalizeTheme(task?.corrected.theme || themeFromLegacyStyle(rawStyle))
   attributeDraft.value = {
     color: task?.corrected.color || '',
     water: task?.corrected.water || '',
-    style: task?.corrected.style || '',
-    theme: task?.corrected.theme || '',
+    style: normalizedStyle,
+    theme: normalizedStyle === '吊坠' ? normalizedTheme : '',
+    craft: task?.corrected.craft || '',
   }
-  selectedClass.value = task?.classes[0] || boxes.value[0]?.class_name || classOrder.value[0] || 'jade_bangle'
+  negativeReason.value = ''
+  syncSelectedClassWithAttributes()
+  selectedClass.value = classFromAttributes() || task?.classes[0] || boxes.value[0]?.class_name || classOrder.value[0] || 'jade_bangle'
 }
 
 function classLabel(className: string) {
@@ -309,6 +479,94 @@ function classLabel(className: string) {
 
 function taskClassText(task: AnnotationTask) {
   return task.classes.length ? task.classes.map(classLabel).join(' / ') : '待选类别'
+}
+
+function normalizeStyle(value: string) {
+  if (['挂件', '吊坠', '牌子', '牌坠', '平安扣', '观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆'].includes(value)) {
+    return '吊坠'
+  }
+  if (['耳环', '耳坠', '耳钉'].includes(value)) return '耳饰'
+  if (value === '项链') return '珠链'
+  return value
+}
+
+function normalizeTheme(value: string) {
+  if (value === '龙') return '龙牌'
+  if (value === '山水牌') return '山水'
+  if (value === '平安无事牌') return '无事牌'
+  if (['四季豆', '豆荚', '豆子'].includes(value)) return '福豆'
+  return value
+}
+
+function themeFromLegacyStyle(value: string) {
+  if (['平安扣', '观音', '佛公', '如意', '叶子', '山水', '貔貅', '葫芦', '无事牌', '财神', '龙牌', '福瓜', '福豆'].includes(value)) {
+    return value
+  }
+  return ''
+}
+
+function selectAttribute(key: AttributeKey, value: string) {
+  negativeReason.value = ''
+  attributeDraft.value[key] = key === 'theme' ? normalizeTheme(value) : value
+  if (key === 'style' && value !== '吊坠') {
+    attributeDraft.value.theme = ''
+  }
+  if (key === 'theme' && value) {
+    attributeDraft.value.style = '吊坠'
+  }
+  syncSelectedClassWithAttributes()
+}
+
+function toggleNegativeReason(reason: string) {
+  negativeReason.value = negativeReason.value === reason ? '' : reason
+}
+
+function classFromAttributes() {
+  if (attributeDraft.value.style === '吊坠' && attributeDraft.value.theme) {
+    return THEME_CLASS_BY_VALUE[attributeDraft.value.theme] || 'jade_pendant'
+  }
+  return STYLE_CLASS_BY_VALUE[attributeDraft.value.style] || ''
+}
+
+function syncSelectedClassWithAttributes() {
+  const nextClass = classFromAttributes()
+  if (!nextClass) return
+  selectedClass.value = nextClass
+  if (boxes.value.length) {
+    const index = selectedBoxIndex.value >= 0 ? selectedBoxIndex.value : boxes.value.length - 1
+    boxes.value[index].class_name = nextClass
+    selectedBoxIndex.value = index
+  }
+}
+
+function setBoxClass(index: number, value: string | null) {
+  const className = value || ''
+  if (!className || !boxes.value[index]) return
+  boxes.value[index].class_name = className
+  selectedBoxIndex.value = index
+  selectedClass.value = className
+  syncAttributesFromClass(className)
+}
+
+function syncAttributesFromClass(className: string) {
+  const next = ATTRIBUTE_BY_CLASS[className]
+  if (!next) return
+  negativeReason.value = ''
+  if (next.style) {
+    attributeDraft.value.style = next.style
+  }
+  if (next.theme) {
+    attributeDraft.value.theme = next.theme
+  } else if (next.style && next.style !== '吊坠') {
+    attributeDraft.value.theme = ''
+  }
+}
+
+function applyCurrentClassToBoxes() {
+  const nextClass = classFromAttributes()
+  if (!nextClass) return
+  selectedClass.value = nextClass
+  boxes.value = boxes.value.map(box => ({ ...box, class_name: nextClass }))
 }
 
 function pointerPosition(event: PointerEvent) {
@@ -430,21 +688,35 @@ function goNext() {
   selectTask(tasks.value[selectedTaskIndex.value + 1])
 }
 
-async function saveBoxes() {
-  if (!selectedTask.value) return
-  if (!boxes.value.length) {
-    error.value = '请至少画一个主体框'
+async function saveCurrentTask() {
+  if (!selectedTask.value || saving.value) return
+  if (negativeReason.value) {
+    await saveNegativeTask()
     return
   }
+  await savePositiveTask()
+}
+
+async function savePositiveTask() {
+  if (!selectedTask.value) return
+  const validationError = validatePositiveAnnotation()
+  if (validationError) {
+    error.value = validationError
+    message.value = ''
+    messageApi.warning(validationError)
+    return
+  }
+  const selection = nextSelectionAfterCurrent()
+  applyCurrentClassToBoxes()
   saving.value = true
   error.value = ''
+  message.value = ''
   try {
     await reviewJadeAnnotationTask(selectedTask.value.id, 'approve', cleanAttributeDraft())
     await saveJadeAnnotationBoxes(selectedTask.value.id, boxes.value.map(normalizeBox))
-    await buildJadeTrainingDataset({ split: 'train', val_every: 5, write_yaml: true })
-    message.value = `已保存 ${boxes.value.length} 个主体框，并重建训练集`
+    message.value = `已保存 ${boxes.value.length} 个主体框`
     messageApi.success(message.value)
-    await Promise.all([loadTrainingStatus(), loadTasks()])
+    await reloadTasksAndSelect(selection)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存标注失败'
   } finally {
@@ -452,36 +724,67 @@ async function saveBoxes() {
   }
 }
 
-async function confirmWholeImage() {
+async function saveNegativeTask() {
   if (!selectedTask.value) return
+  if (!negativeReason.value) {
+    error.value = '请选择一个无可标注原因'
+    message.value = ''
+    messageApi.warning(error.value)
+    return
+  }
+  const selection = nextSelectionAfterCurrent()
   saving.value = true
   error.value = ''
+  message.value = ''
   try {
-    await approveJadeAnnotationWholeImageBox(selectedTask.value.id, cleanAttributeDraft())
-    await buildJadeTrainingDataset({ split: 'train', val_every: 5, write_yaml: true })
-    message.value = '已按整图框确认，并重建训练集'
+    await reviewJadeAnnotationTask(selectedTask.value.id, 'reject', { negative_reason: negativeReason.value })
+    message.value = `已保存为无可标注：${negativeReason.value}`
     messageApi.success(message.value)
-    await Promise.all([loadTrainingStatus(), loadTasks()])
+    await reloadTasksAndSelect(selection)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '整图框确认失败'
+    error.value = err instanceof Error ? err.message : '保存无可标注失败'
   } finally {
     saving.value = false
   }
 }
 
-async function rejectTask() {
-  if (!selectedTask.value) return
-  saving.value = true
-  error.value = ''
-  try {
-    await reviewJadeAnnotationTask(selectedTask.value.id, 'reject')
-    message.value = '样本已丢弃'
-    await loadTasks()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : '丢弃样本失败'
-  } finally {
-    saving.value = false
+function validatePositiveAnnotation() {
+  if (!boxes.value.length) {
+    return '请先框出翡翠主体；如果图里没有可标注主体，请选无可标注原因'
   }
+  if (!attributeDraft.value.color) {
+    return '请选择颜色；不能100%判断就选“颜色无法100%判断”'
+  }
+  if (!attributeDraft.value.water) {
+    return '请选择种水；不能100%判断就选“种水无法100%判断”'
+  }
+  if (!attributeDraft.value.style) {
+    return '请选择款式；不能100%判断就选“款式无法100%判断”'
+  }
+  if (attributeDraft.value.style === '吊坠' && !attributeDraft.value.theme) {
+    return '吊坠必须选择题材；不能100%判断就选“题材无法100%判断”'
+  }
+  if (!attributeDraft.value.craft) {
+    return '请选择工艺；不能100%判断就选“工艺无法100%判断”'
+  }
+  return ''
+}
+
+function nextSelectionAfterCurrent() {
+  const index = selectedTaskIndex.value
+  return {
+    nextId: index >= 0 ? tasks.value[index + 1]?.id || '' : '',
+    fallbackIndex: Math.max(0, index),
+  }
+}
+
+async function reloadTasksAndSelect(selection: { nextId: string; fallbackIndex: number }) {
+  await Promise.all([loadTrainingStatus(), loadTasks()])
+  const target =
+    (selection.nextId ? tasks.value.find(task => task.id === selection.nextId) : null) ||
+    tasks.value[Math.min(selection.fallbackIndex, Math.max(0, tasks.value.length - 1))] ||
+    null
+  selectTask(target)
 }
 
 async function buildDataset() {
@@ -508,11 +811,13 @@ function round(value: number) {
 }
 
 function cleanAttributeDraft() {
+  const style = attributeDraft.value.style || ''
   return {
     color: attributeDraft.value.color || '',
     water: attributeDraft.value.water || '',
-    style: attributeDraft.value.style || '',
-    theme: attributeDraft.value.theme || '',
+    style,
+    theme: style === '吊坠' ? attributeDraft.value.theme || '' : '',
+    craft: attributeDraft.value.craft || '',
   }
 }
 
@@ -741,6 +1046,7 @@ function toSelectOptions(values: string[]) {
 
 .task-meta,
 .attribute-form,
+.negative-panel,
 .box-list {
   padding: 12px;
 }
@@ -760,6 +1066,67 @@ function toSelectOptions(values: string[]) {
 .attribute-form span {
   color: #9fb1bd;
   font-size: 12px;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+}
+
+.option-chip {
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #d9e8e4;
+  font-size: 13px;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+
+.option-chip:hover {
+  border-color: rgba(34, 211, 166, 0.54);
+  background: rgba(20, 83, 45, 0.32);
+}
+
+.option-chip.active {
+  border-color: #22d3a6;
+  background: rgba(34, 211, 166, 0.22);
+  color: #f8fffd;
+}
+
+.negative-panel {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.negative-panel strong {
+  font-size: 13px;
+}
+
+.negative-panel span {
+  color: #9fb1bd;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.negative-panel .option-grid {
+  grid-template-columns: 1fr;
+}
+
+.option-chip.negative {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: rgba(113, 63, 18, 0.2);
+  text-align: left;
+}
+
+.option-chip.negative.active {
+  border-color: #f59e0b;
+  background: rgba(180, 83, 9, 0.34);
 }
 
 .box-list {
@@ -795,6 +1162,10 @@ function toSelectOptions(values: string[]) {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 12px 12px;
+}
+
+.side-actions :deep(.n-button__content) {
+  white-space: normal;
 }
 
 .empty-state {

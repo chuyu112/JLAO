@@ -22,7 +22,7 @@ def test_review_queue_selects_low_confidence_missing_and_flagged_rows(tmp_path):
         },
         {
             "image_path": "b.jpg",
-            "analysis": {"color": "蓝水", "water": "", "style": "牌子", "theme": "龙牌", "confidence": 0.52},
+            "analysis": {"color": "蓝水", "water": "", "style": "吊坠", "theme": "龙牌", "confidence": 0.52},
             "review_flags": ["missing_water"],
             "batch_id": "batch-001",
         },

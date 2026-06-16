@@ -56,13 +56,12 @@ JADE_WATERS: dict[str, tuple[str, ...]] = {
 
 JADE_STYLES: dict[str, tuple[str, ...]] = {
     "手镯": ("手镯", "镯子", "圆条", "正圈", "贵妃镯", "平安镯", "手环"),
-    "珠串": ("珠串", "手串", "珠子", "珠链", "项链", "佛珠"),
-    "蛋面": ("蛋面", "鸽子蛋", "裸石"),
-    "戒面": ("戒面", "戒面石"),
-    "吊坠": ("吊坠", "坠子", "镶嵌坠", "裸石坠"),
-    "挂件": ("挂件", "牌坠", "牌子", "无事牌", "山水牌", "龙牌", "龙牌吊坠", "山水牌吊坠", "小挂件", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"),
+    "珠串": ("珠串", "手串", "珠子", "佛珠"),
+    "珠链": ("珠链", "项链"),
+    "蛋面": ("蛋面", "戒面", "戒面石", "鸽子蛋", "裸石"),
+    "吊坠": ("吊坠", "坠子", "挂件", "牌坠", "牌子", "小挂件", "镶嵌坠", "裸石坠", "无事牌", "山水牌", "龙牌", "龙牌吊坠", "山水牌吊坠", "平安扣", "扣子", "怀古", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"),
     "戒指": ("戒指", "戒托", "戒圈"),
-    "平安扣": ("平安扣", "扣子", "怀古"),
+    "耳饰": ("耳饰", "耳环", "耳坠", "耳钉"),
     "摆件": ("摆件", "把件", "手把件"),
 }
 
@@ -74,9 +73,10 @@ JADE_THEMES: dict[str, tuple[str, ...]] = {
     "山水": ("山水", "山水牌"),
     "貔貅": ("貔貅", "皮丘"),
     "葫芦": ("葫芦", "福禄"),
+    "平安扣": ("平安扣", "扣子", "怀古"),
     "无事牌": ("无事牌", "平安无事牌"),
     "财神": ("财神", "关公", "武财神"),
-    "龙": ("龙", "龙牌", "龙纹", "生肖龙"),
+    "龙牌": ("龙牌", "龙", "龙纹", "生肖龙"),
     "福瓜": ("福瓜", "瓜"),
     "福豆": ("福豆", "四季豆", "豆荚", "豆子"),
 }
@@ -466,11 +466,31 @@ def _canonicalize_attribute(key: str, value: Any) -> str:
 
 
 def _normalize_style_theme_boundary(analysis: JadeAnalysis, attribute_sources: dict[str, Any]) -> None:
-    carved_themes = {"观音", "佛公", "如意", "叶子", "山水", "貔貅", "葫芦", "无事牌", "财神", "龙", "福瓜", "福豆"}
-    if analysis.style == "吊坠" and analysis.theme in carved_themes:
-        analysis.style = "挂件"
+    theme_aliases = {
+        "平安扣": "平安扣",
+        "观音": "观音",
+        "佛公": "佛公",
+        "如意": "如意",
+        "叶子": "叶子",
+        "山水": "山水",
+        "貔貅": "貔貅",
+        "葫芦": "葫芦",
+        "无事牌": "无事牌",
+        "财神": "财神",
+        "龙": "龙牌",
+        "龙牌": "龙牌",
+        "福瓜": "福瓜",
+        "福豆": "福豆",
+    }
+    if analysis.theme in theme_aliases:
+        analysis.theme = theme_aliases[analysis.theme]
+    if analysis.style in {"挂件", "牌子", "牌坠", "小挂件", "平安扣", *theme_aliases.keys()}:
+        if not analysis.theme and analysis.style in theme_aliases:
+            analysis.theme = theme_aliases[analysis.style]
+        previous_style = analysis.style
+        analysis.style = "吊坠"
         if "style" in attribute_sources:
-            attribute_sources["style"] = {**attribute_sources["style"], "value": "挂件", "normalized_from": "吊坠"}
+            attribute_sources["style"] = {**attribute_sources["style"], "value": "吊坠", "normalized_from": previous_style}
 
 
 def _normalize_water_conservatively(
@@ -673,21 +693,25 @@ def _visual_style_from_signals(
     aspect = _float_signal(style_features, "aspect_ratio")
     raw_style = str(((vlm_signal or {}).get("vlm_features") or {}).get("object_style") or "").strip()
     if raw_style == "牌子":
-        return "挂件"
+        return "吊坠"
     if current_style == "蛋面" and color == "晴水" and (hole >= 0.20 or circularity >= 0.20):
-        return "戒面"
+        return "蛋面"
     if current_style == "蛋面" and color == "阳绿" and hole >= 0.50 and (aspect < 0.25 or (hole >= 0.80 and circularity < 0.15)):
         return "戒指"
     if raw_style == "蛋面" and hole >= 0.50 and circularity >= 0.50 and 0.60 <= aspect <= 1.20:
-        return "戒面"
+        return "蛋面"
     if raw_style == "吊坠" and color == "白冰" and current_theme in {"", "无", "其他"}:
-        return "平安扣"
+        return "吊坠"
     if current_theme in {"", "无", "其他"} and raw_style == "挂件" and hole >= 0.25 and circularity >= 0.20 and 0.70 <= aspect <= 1.35:
-        return "平安扣"
-    if raw_style in {"平安扣", "戒指", "戒面", "蛋面", "手镯", "珠串", "挂件", "吊坠"}:
+        return "吊坠"
+    if raw_style in {"平安扣", "挂件", "牌子"}:
+        return "吊坠"
+    if raw_style in {"戒面"}:
+        return "蛋面"
+    if raw_style in {"戒指", "蛋面", "手镯", "珠串", "珠链", "吊坠", "耳饰", "摆件"}:
         return raw_style
-    if current_style in {"", "挂件"} and hole >= 0.25 and circularity >= 0.20:
-        return "平安扣"
+    if current_style in {"", "挂件", "吊坠"} and hole >= 0.25 and circularity >= 0.20:
+        return "吊坠"
     return ""
 
 
@@ -701,7 +725,7 @@ def _visual_theme_from_signals(
 ) -> str:
     raw_theme = str(((vlm_signal or {}).get("vlm_features") or {}).get("shape_theme") or "").strip()
     if raw_theme not in {"", "无", "其他"}:
-        return raw_theme
+        return _canonicalize_attribute("theme", raw_theme)
     style_features = (opencv_signal or {}).get("style_features") or {}
     aspect = _float_signal(style_features, "aspect_ratio")
     hole = _float_signal(style_features, "hole_ratio")

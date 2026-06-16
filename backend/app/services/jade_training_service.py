@@ -25,8 +25,8 @@ STYLE_TO_CLASS = {
     "珠串": "jade_beads",
     "手串": "jade_beads",
     "珠子": "jade_beads",
-    "珠链": "jade_beads",
-    "项链": "jade_beads",
+    "珠链": "jade_necklace",
+    "项链": "jade_necklace",
     "蛋面": "jade_cabochon",
     "戒面": "jade_cabochon",
     "鸽子蛋": "jade_cabochon",
@@ -39,11 +39,15 @@ STYLE_TO_CLASS = {
     "龙牌": "jade_pendant",
     "山水牌": "jade_pendant",
     "无事牌": "jade_pendant",
-    "平安扣": "pingan_kou",
-    "扣子": "pingan_kou",
+    "平安扣": "jade_pendant",
+    "扣子": "jade_pendant",
     "摆件": "jade_ornament",
     "把件": "jade_ornament",
     "手把件": "jade_ornament",
+    "耳饰": "jade_earring",
+    "耳环": "jade_earring",
+    "耳坠": "jade_earring",
+    "耳钉": "jade_earring",
 }
 
 THEME_TO_CLASS = {
@@ -63,6 +67,9 @@ THEME_TO_CLASS = {
     "皮丘": "pixiu",
     "葫芦": "gourd",
     "福禄": "gourd",
+    "平安扣": "pingan_kou",
+    "扣子": "pingan_kou",
+    "怀古": "pingan_kou",
     "财神": "caishen",
     "龙牌": "dragon_plaque",
     "龙": "dragon_plaque",
@@ -444,19 +451,17 @@ def class_names_from_feedback(record: dict[str, Any]) -> list[str]:
 def normalize_corrected_training_attributes(corrected: dict[str, Any]) -> dict[str, str]:
     style = normalize_training_label(corrected.get("style"))
     theme = normalize_training_label(corrected.get("theme"))
-    if style in {"牌子", "牌坠", "小挂件"}:
-        style = "挂件"
+    if style in {"挂件", "牌子", "牌坠", "小挂件"}:
+        style = "吊坠"
     elif style in {"龙牌", "山水牌", "无事牌"}:
         if not theme:
-            theme = {"龙牌": "龙", "山水牌": "山水", "无事牌": "无事牌"}[style]
-        style = "挂件"
-    elif style in {"观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"}:
+            theme = {"龙牌": "龙牌", "山水牌": "山水", "无事牌": "无事牌"}[style]
+        style = "吊坠"
+    elif style in {"平安扣", "观音", "佛公", "叶子", "如意", "葫芦", "福瓜", "福豆", "貔貅"}:
         if not theme:
             theme = style
-        style = "挂件"
-    if theme == "龙牌":
-        theme = "龙"
-    elif theme == "山水牌":
+        style = "吊坠"
+    if theme == "山水牌":
         theme = "山水"
     elif theme == "平安无事牌":
         theme = "无事牌"
@@ -622,4 +627,3 @@ def safe_stem(raw: Any) -> str:
     for char in text:
         allowed.append(char if char.isalnum() or char in ("-", "_") else "-")
     return "".join(allowed).strip("-") or "jade-feedback"
-

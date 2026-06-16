@@ -23,7 +23,7 @@ def test_taxonomy_values_accepts_manifest_prediction_aliases():
         },
         {
             "prediction": {"model_color": "蓝水", "model_water": "高冰"},
-            "corrected": {"style": "牌子", "theme": "龙牌"},
+            "corrected": {"style": "吊坠", "theme": "龙牌"},
         },
     ]
 

@@ -44,7 +44,7 @@ def test_vlm_parse_labeled_text_fills_missing_fields_from_full_response():
     assert result == {
         "color": "蓝水",
         "water": "高冰",
-        "style": "牌子",
+        "style": "吊坠",
         "theme": "龙牌",
     }
 
@@ -253,7 +253,7 @@ def test_visual_style_classifier_handles_shape_boundaries():
         color="黄翡",
         current_style="挂件",
         current_theme="龙",
-    ) == "挂件"
+    ) == "吊坠"
     assert _visual_style_from_signals(
         {"vlm_features": {"object_style": "蛋面"}},
         {"style_features": {"hole_ratio": 0.84, "aspect_ratio": 0.09}},
@@ -274,7 +274,7 @@ def test_visual_style_classifier_handles_shape_boundaries():
         color="白冰",
         current_style="吊坠",
         current_theme="",
-    ) == "平安扣"
+    ) == "吊坠"
 
 
 def test_visual_theme_classifier_handles_ruyi_shape():
@@ -297,14 +297,14 @@ def test_visual_theme_classifier_handles_ruyi_shape():
 def test_yolo_label_maps_style_and_theme_from_english_label():
     style, theme = jade_attributes_from_yolo_label("jade_dragon_plaque")
 
-    assert style == "牌子"
+    assert style == "吊坠"
     assert theme == "龙牌"
 
 
 def test_yolo_label_maps_style_and_theme_from_chinese_label():
     style, theme = jade_attributes_from_yolo_label("山水牌")
 
-    assert style == "牌子"
+    assert style == "吊坠"
     assert theme == "山水"
 
 
@@ -322,14 +322,14 @@ def test_multimodal_merge_combines_text_and_image_attributes():
         },
     )
     image = JadeAnalysis(
-        style="牌子",
+        style="吊坠",
         theme="龙牌",
         evidence_image_paths=["dragon-plaque.jpg"],
         detections=[{"label": "jade_dragon_plaque", "confidence": 0.88}],
         confidence=0.5,
         signals={
             "attribute_sources": {
-                "style": {"source": "yolo", "method": "detection-label", "value": "牌子"},
+                "style": {"source": "yolo", "method": "detection-label", "value": "吊坠"},
                 "theme": {"source": "yolo", "method": "detection-label", "value": "龙牌"},
             }
         },
@@ -339,7 +339,7 @@ def test_multimodal_merge_combines_text_and_image_attributes():
 
     assert result.color == "白冰"
     assert result.water == "冰种"
-    assert result.style == "牌子"
+    assert result.style == "吊坠"
     assert result.theme == "龙牌"
     assert result.evidence_texts == ["白冰冰种"]
     assert result.evidence_image_paths == ["dragon-plaque.jpg"]
